@@ -275,6 +275,14 @@ viernes) en dos sitios: en `/planificador`, encima del botón Generar y antes de
 `/semana/[slug]` con una `note` que avisa de que son las reglas actuales (una semana guardada puede
 ser de antes de alguna). No está dentro de `WeekView`: cada página lo pone por su cuenta.
 
+Debajo de las reglas, el mismo panel lista las **"Fuentes de recetas"** (a petición): los 5 sitios
+en los que se busca con Tavily, con su enlace y el mismo color de badge que en los platos. Salen de
+`server/clients/recipe-sources.ts` (`RECIPE_SOURCES`), un **módulo puro** (sin `@tavily/core`,
+env ni zod) que importan tanto `server/clients/tavily.ts`, para filtrar resultados, como
+`lib/menu-data.ts` (`recipeSources`), para pintarlos. Así lo que se ve es siempre lo que se
+consulta. Si se añade o quita un sitio, se hace solo ahí; `homeUrl`/`note` son solo de
+presentación.
+
 **Esta app tuvo, en algún punto, dos versiones contradictorias de qué es la "Comida" de lunes a
 viernes**, y se resolvió dos veces en direcciones opuestas — la que queda vigente es la segunda,
 por instrucción explícita y sin ambigüedad del usuario: *"no me interesa saber lo que comen mis
@@ -331,7 +339,7 @@ ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de ni
 3. **Candidatas** (`step3-fetch-recipes.ts`, Tavily) — una búsqueda por plato, todas en
    `Promise.all` (concurrentes, como pide el enunciado). Restringida a `cookidoo.es`,
    `elpais.com/gastronomia/el-comidista`, `directoalpaladar.com`, `cookpad.com`, `petitchef.es`
-   (`server/clients/tavily.ts`, `ALLOWED_SOURCES`). `searchRecipeCandidates` devuelve **hasta 3
+   (`server/clients/recipe-sources.ts`, `RECIPE_SOURCES`). `searchRecipeCandidates` devuelve **hasta 3
    candidatas**, de sitios distintos siempre que puede. Solo acepta páginas de UNA receta
    (`recipePath` por sitio: sin `cookpad.com/es/buscar/...` ni páginas de categoría) con al menos
    `MIN_CANDIDATE_CHARS` (800) de contenido. **Además, una búsqueda aparte solo en Cookidoo**

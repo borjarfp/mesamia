@@ -1,3 +1,4 @@
+import { RECIPE_SOURCES } from '@/server/clients/recipe-sources'
 import { MAX_AVE, MAX_CARNE_ROJA, MAX_HUEVO, MAX_PESCADO, MAX_WEEKDAY_MINUTES, MIN_LEGUMBRE, TARGET_WEEKDAY_MINUTES } from '@/server/rules/constants'
 
 // Todas las reglas que aplica el backend al generar/sustituir platos, agrupadas para mostrarlas en
@@ -36,6 +37,11 @@ export const ruleGroups: Array<{ title: string; rules: string[] }> = [
     ],
   },
 ]
+
+// Los sitios en los que se buscan recetas con Tavily, para listarlos en RulesPanel. Salen del mismo
+// módulo que usa el backend para filtrar (server/clients/recipe-sources.ts), así que no pueden
+// desincronizarse.
+export const recipeSources = RECIPE_SOURCES.map(({ label, homeUrl, note }) => ({ label, url: homeUrl, displayUrl: homeUrl.replace(/^https:\/\/(www\.)?/, '').replace(/\/$/, ''), note }))
 
 // Mismo vocabulario que server/types.ts (FinalDish.sourceName): las fuentes reales que puede
 // devolver el backend, más "Manual" para los platos que se escriben a mano en el Drawer de

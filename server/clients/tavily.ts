@@ -2,25 +2,12 @@ import { tavily, type TavilyClient } from '@tavily/core'
 import { getTavilyApiKey } from '../env'
 import { UpstreamApiError } from '../errors'
 
-export type RecipeSourceName = 'Cookidoo' | 'El Comidista' | 'Directo al Paladar' | 'Cookpad' | 'Petitchef'
+import { RECIPE_SOURCES, type RecipeSourceName } from './recipe-sources'
 
-// El enunciado pide restringir "estrictamente" a estos 5 sitios. `includeDomains` de Tavily solo
-// filtra por dominio, y El Comidista no es un dominio propio: vive bajo una ruta de elpais.com. Por
-// eso, además de mandar los dominios permitidos a Tavily, cada resultado se vuelve a comprobar aquí
-// (dominio + ruta cuando aplica) antes de aceptarlo — no nos fiamos solo del filtro del proveedor.
-//
-// `recipePath`: además, la URL tiene que ser una página de UNA receta, no un listado. Tavily devuelve
-// a menudo páginas de búsqueda (cookpad.com/es/buscar/...) o de categoría, y antes se aceptaban como
-// "receta" — el badge del plato acababa enlazando a una lista de resultados (visto probando con la
-// API real). El Comidista no tiene un patrón de URL propio para recetas (son artículos), así que
-// ahí solo se exige la ruta de la sección.
-const ALLOWED_SOURCES: Array<{ domain: string; pathPrefix?: string; recipePath?: RegExp; label: RecipeSourceName }> = [
-  { domain: 'cookidoo.es', recipePath: /^\/recipes\/recipe\//, label: 'Cookidoo' },
-  { domain: 'elpais.com', pathPrefix: '/gastronomia/el-comidista', label: 'El Comidista' },
-  { domain: 'directoalpaladar.com', recipePath: /receta/, label: 'Directo al Paladar' },
-  { domain: 'cookpad.com', recipePath: /^\/[a-z]{2}\/recetas\/\d+/, label: 'Cookpad' },
-  { domain: 'petitchef.es', recipePath: /^\/recetas\//, label: 'Petitchef' },
-]
+export type { RecipeSourceName }
+
+// Sitios permitidos y por qué se filtra por dominio + ruta: ver ./recipe-sources.ts.
+const ALLOWED_SOURCES = RECIPE_SOURCES
 
 // Una página con menos texto que esto no trae una receta completa (muro de pago, bloqueo, página
 // casi vacía: una de El Comidista llegó con 144 caracteres) — no merece la pena ofrecerla como
