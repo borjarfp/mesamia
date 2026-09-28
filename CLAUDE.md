@@ -171,8 +171,12 @@ viernes" más abajo para por qué esto cambió respecto a una versión anterior 
 webs"). `openMeal()` solo abre el modal, que ofrece a la vez las dos formas de cambiar el plato:
 - Un botón **"Buscar alternativas"** (`searchAlternatives()` → `substituteDish()`, 15-40s, con
   estado de carga). Cuando hay resultados, aparece "Buscar otras alternativas" para repetir.
-- Debajo de un `Separator`, el formulario libre "O escribe tu propio plato". Es puramente del
-  cliente (`sourceKind: 'ia', sourceName: 'Manual'`) y no pasa por el backend ni por las reglas.
+- Debajo de un `Separator`, el formulario libre "O escribe tu propio plato": título (obligatorio),
+  descripción/receta (textarea, opcional; se muestra en "Ver receta" respetando saltos de línea) y
+  URL de origen (opcional: redes sociales, blogs…; se valida y se le pone `https://` si falta). Es
+  puramente del cliente (`sourceName: 'Manual'`) y no pasa por el backend ni por las reglas. Con URL
+  es `sourceKind: 'web'` + `sourceUrl`, así el badge "Manual" enlaza al original y "Ver receta" ofrece
+  "Ver la receta original"; sin URL, `sourceKind: 'ia'`. Se guarda en `recipes.description`/`source_url`.
 
 `searchId` (un `useRef` contador) descarta la respuesta de una búsqueda si mientras tanto se cerró
 el modal o se abrió otro plato. Sin él, una búsqueda lenta pintaría alternativas del plato
