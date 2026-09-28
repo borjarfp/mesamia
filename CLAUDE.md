@@ -48,7 +48,8 @@ app/
                        generateStaticParams (las semanas se crean en tiempo de ejecución).
   globals.css          Tokens shadcn (oklch) y un bloque @media print importante. Sin modo
                        oscuro — ver "Sin modo oscuro" más abajo antes de tocar esto.
-components/ui/         9 primitivas shadcn: alert, badge, button, card, collapsible, drawer,
+components/ui/         10 primitivas: alert, badge, button, card, collapsible, dialog (escrita a mano
+                       sobre base-ui, ver "Modales" abajo), drawer,
                        input, separator, tabs (tabs.tsx ya no se usa, ver "Rutas" abajo).
 components/menu/       UI compartida entre las tres rutas anteriores:
   page-shell.tsx        El fondo gris + "tarjeta" blanca + layout en columna de cada página.
@@ -120,7 +121,12 @@ pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten co
 - **`/guardados`** — `useEffect` en el montaje llama a `listHistory()` (`GET /api/history`) y pinta
   lo que devuelva de verdad; hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
   (`<Button render={<Link .../>} nativeButton={false}>` — ver el gotcha de `nativeButton` más
-  abajo) — siempre, ya no hay un caso "Ver deshabilitado".
+  abajo) — siempre, ya no hay un caso "Ver deshabilitado". **Cada fila tiene además una papelera**
+  (`DeleteWeekButton compact`, `components/menu/delete-week-button.tsx`). Pide confirmación con
+  `ResponsiveModal` ("No se puede deshacer"), llama a `deleteHistoryEntry()` (`DELETE
+  /api/history/[id]`) y quita la fila de la lista sin recargar. `/semana/[slug]` tiene el mismo
+  botón ("Borrar semana", junto a "Volver"), con `redirectTo="/guardados"` porque desde un Server
+  Component no se puede pasar un `onDeleted`.
 - **`/semana/[slug]`** — ver más abajo.
 
 `TabNav` (`components/menu/tab-nav.tsx`) es la navegación Planificador/Guardados: **ya no** es el
@@ -159,20 +165,45 @@ ti" ahora es configurable (`badgeLabel`); `/semana/[slug]` pasa `badgeLabel="His
 ninguna excepción por `sourceKind` ni por día: ver "Reglas dietéticas y la comida de lunes a
 viernes" más abajo para por qué esto cambió respecto a una versión anterior de este documento.
 
-Al abrir un `Meal` sustituible, `openMeal()` llama **de inmediato** a `substituteDish()` (no espera
-a que el usuario pida nada más) y el Drawer muestra un estado de carga (`LoaderCircle` +
-"Buscando alternativas...") mientras tanto — puede tardar 15-40s (Gemini + Tavily + Gemini otra
-vez, por cada una de las alternativas). El `Drawer` sigue ofreciendo **dos formas** de cambiar un
-plato: las alternativas reales devueltas por el backend **y**, debajo de un `Separator`, el mismo
-formulario libre de siempre ("O escribe tu propio plato") — ese sí sigue siendo puramente del
-cliente (`sourceKind: 'ia', sourceName: 'Manual'`, sin pasar por el backend ni validarse contra las
-reglas). `customTitle`/`alternatives`/errores se limpian tanto al abrir un `Meal` distinto
-(`openMeal`) como al cerrar el Drawer (`closeDrawer`).
+**Abrir "Cambiar" ya NO busca nada** (a petición: "que no vaya a buscar inmediatamente a las
+webs"). `openMeal()` solo abre el modal, que ofrece a la vez las dos formas de cambiar el plato:
+- Un botón **"Buscar alternativas"** (`searchAlternatives()` → `substituteDish()`, 15-40s, con
+  estado de carga). Cuando hay resultados, aparece "Buscar otras alternativas" para repetir.
+- Debajo de un `Separator`, el formulario libre "O escribe tu propio plato". Es puramente del
+  cliente (`sourceKind: 'ia', sourceName: 'Manual'`) y no pasa por el backend ni por las reglas.
+
+`searchId` (un `useRef` contador) descarta la respuesta de una búsqueda si mientras tanto se cerró
+el modal o se abrió otro plato. Sin él, una búsqueda lenta pintaría alternativas del plato
+anterior. `customTitle`/`alternatives`/errores se limpian tanto en `openMeal` como en
+`closeDrawer`. Comprobado en Chrome (CDP): 0 llamadas a `/api/menus/substitute` al abrir, 1 al
+pulsar el botón.
+
+### Modales: centrados en escritorio, Drawer en móvil
+
+Los dos modales de `WeekView` (cambiar plato y confirmar) usan `ResponsiveModal`
+(`components/menu/responsive-modal.tsx`). A partir de `md` (768px, `matchMedia` vía
+`useSyncExternalStore`) es un **Dialog centrado** (`components/ui/dialog.tsx`, escrito a mano sobre
+`@base-ui/react/dialog`, con los `data-slot` `dialog-overlay`/`dialog-popup`). Por debajo es el
+**Drawer** de siempre, que sube desde abajo. Los botones de cerrar van en `footer` con
+`onClick → onOpenChange(false)`, no con `DrawerClose`/`DialogClose`, para que el mismo contenido
+sirva en los dos. El `@media print` de `globals.css` oculta también `dialog-overlay`/`dialog-popup`,
+por el mismo motivo que los del Drawer. Comprobado en Chrome headless a 1280×900 (Dialog centrado,
+512px) y 390×844 (Drawer pegado abajo, sin overflow horizontal).
+
+### "Ver receta" en cada plato
+
+Cada `Meal` (`day-card.tsx`) tiene un "Ver receta" / "Ocultar receta", **cerrado por defecto** (a
+petición: "que se muestre cuando el usuario quiera"), con la descripción, los ingredientes y
+"Cómo se hace" (`FinalDish.steps`: 3-6 pasos breves). Los pasos los genera el Paso 4
+(`RecipeSelectionSchema`): si la receta elegida es web, resume los pasos de la página; si es de
+Gemini, los de su receta. `steps` es opcional: los platos manuales, los antiguos o los que se
+quedaron como los planificó el Paso 2 no los tienen. Se muestra lo que haya y, si no hay nada, el
+botón no aparece. En BD es la tabla `recipe_steps` (como `recipe_ingredients`).
 
 ### Confirmar planificación → Guardados
 
 Solo cuando `editable`: botón "Confirmar planificación" (junto a "Exportar PDF / imprimir") que
-abre un **segundo** `Drawer` (independiente del de sustitución) con "¿Confirmar esta
+abre un **segundo** modal (`ResponsiveModal`, independiente del de sustitución) con "¿Confirmar esta
 planificación?", un botón "Imprimir menú semanal" (reutiliza `handlePrint` = `window.print()`) y
 "Confirmar y guardar", que ahora llama de verdad a `saveHistoryEntry(weekLabel, { days,
 generatedAt })` (`POST /api/history`) y, solo si eso responde bien, navega a `/guardados` con
@@ -345,6 +376,7 @@ L-V) — quedó descartado por completo, ver "Reglas dietéticas y la comida de 
 Pedidas por el usuario, además de los límites semanales de proteína:
 - Sin marisco (crustáceos y bivalvos). **Pota, calamar, pulpo y sepia sí están permitidos**, y se
   clasifican como `pescado`, así que cuentan para el máximo semanal de pescado.
+- Sin champiñones y sin tofu (`OTHER_BANNED`; solo champiñones, no todas las setas).
 - Sin atún (ni bonito del norte) y sin aceitunas. El aceite de oliva sí está permitido: por eso la
   lista usa "olivas" en plural y nunca "oliva".
 - El único pescado es merluza (o pescadilla) o salmón, además de los cefalópodos. Cualquier otro
@@ -392,6 +424,7 @@ sitio) y su espejo zod en `server/db/tables.ts`, con los mismos nombres de tabla
 
 ```
 saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+                                             1 ──< recipe_steps
 ```
 
 - `saved_weeks`: una fila por semana confirmada (`label`, `week_start` = lunes de la semana
@@ -401,9 +434,11 @@ saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
   contenido**: `fingerprint` (UNIQUE) es un sha256 de todo el plato. Un plato idéntico reutiliza la
   fila y cualquier diferencia crea otra, así que guardar una semana nueva nunca altera una antigua.
 - `recipe_ingredients`: ingredientes en orden (PK `recipe_id, position`), texto libre.
+- `recipe_steps`: pasos de "cómo se hace" en orden (PK `recipe_id, position`).
 
-Borrar una semana borra sus `week_meals` (CASCADE) pero **no** sus recetas: se quedan en el
-histórico de recetas.
+Borrar una semana borra sus `week_meals` (CASCADE) **y las recetas que se quedan sin usar** (con
+sus ingredientes y pasos). Las que comparte con otra semana guardada se quedan. Antes las recetas
+se conservaban siempre en el catálogo; cambió a petición ("no quiero tener ese histórico").
 
 **Almacenamiento actual**: `server/history/store.ts` guarda esas mismas tablas como filas en un
 único JSON, `.data/mesamia-db.json` dentro del proyecto (o `MESAMIA_DATA_DIR`; en Vercel,
@@ -538,6 +573,13 @@ lectura (0 "Cambiar") y que el plato sustituido antes de confirmar es el que que
   puede dar falsos positivos/negativos); hay que forzar el viewport por CDP
   (`Emulation.setDeviceMetricsOverride`) o revisar `document.documentElement.scrollWidth` en un
   navegador real.
+- **Headless Chrome recién arrancado: la pestaña está `visibilityState: 'hidden'` y
+  `requestAnimationFrame` no se ejecuta.** Los modales de base-ui (Dialog/Drawer) se quedan para
+  siempre en `data-starting-style` (opacidad 0) y parecen rotos, pero no lo están: con la pestaña
+  visible (en un navegador real, o tras usarla un rato en el mismo headless) se abren bien.
+  Comprobarlo con `requestAnimationFrame` antes de dar un modal por roto. Tampoco hay que hacer
+  clic justo al cargar una página: el botón ya está en el HTML del servidor pero no responde hasta
+  que React hidrata.
 - **Al probar por CDP la subida de archivos (el `<input type="file">` oculto dentro del
   `<label>` "Subir")**: un clic simulado con `Runtime.evaluate` (JS `.click()`) no
   cuenta como gesto de usuario real, así que Chrome no abre el selector de archivos nativo ni emite

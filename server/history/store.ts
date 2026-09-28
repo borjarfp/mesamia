@@ -16,7 +16,7 @@ export interface HistoryStore {
 }
 
 // Implementación local: las tablas relacionales de server/db/schema.sql (saved_weeks, recipes,
-// recipe_ingredients, week_meals) guardadas como filas en un único JSON. Mismo modelo que tendrá la
+// recipe_ingredients, recipe_steps, week_meals) guardadas como filas en un único JSON. Mismo modelo que tendrá la
 // BD real — esto solo cambia DÓNDE se guardan las filas, no su forma.
 //
 // Ubicación: MESAMIA_DATA_DIR si está fijada; si no, `.data/` dentro del proyecto (persiste entre
@@ -57,6 +57,7 @@ function serialized<T>(task: () => Promise<T>): Promise<T> {
 
 function dishFromRow(db: LocalDatabase, recipe: RecipeRow): FinalDish {
   const ingredients = db.recipe_ingredients.filter(row => row.recipe_id === recipe.id).sort((a, b) => a.position - b.position).map(row => row.name)
+  const steps = db.recipe_steps.filter(row => row.recipe_id === recipe.id).sort((a, b) => a.position - b.position).map(row => row.text)
   return {
     title: recipe.title,
     description: recipe.description,
@@ -67,6 +68,7 @@ function dishFromRow(db: LocalDatabase, recipe: RecipeRow): FinalDish {
     ...(recipe.source_url ? { sourceUrl: recipe.source_url } : {}),
     ...(recipe.total_time_minutes !== null ? { totalTimeMinutes: recipe.total_time_minutes } : {}),
     ...(recipe.difficulty ? { difficulty: recipe.difficulty } : {}),
+    ...(steps.length > 0 ? { steps } : {}),
   }
 }
 
@@ -97,6 +99,7 @@ function upsertRecipe(db: LocalDatabase, dish: FinalDish, now: string): string {
   const id = randomUUID()
   db.recipes.push({ id, fingerprint, title: dish.title, description: dish.description, protein_category: dish.proteinCategory, source_kind: dish.sourceKind, source_name: dish.sourceName, source_url: dish.sourceUrl ?? null, total_time_minutes: dish.totalTimeMinutes ?? null, difficulty: dish.difficulty ?? null, created_at: now })
   dish.ingredients.forEach((name, position) => db.recipe_ingredients.push({ recipe_id: id, position, name }))
+  dish.steps?.forEach((text, position) => db.recipe_steps.push({ recipe_id: id, position, text }))
   return id
 }
 
@@ -132,9 +135,15 @@ function createLocalRelationalHistoryStore(): HistoryStore {
       return serialized(async () => {
         const db = await load()
         if (!db.saved_weeks.some(row => row.id === id)) return false
-        // ON DELETE CASCADE de week_meals; las recetas se quedan en el catálogo (ver schema.sql).
+        // ON DELETE CASCADE de week_meals. Y, a petición ("no quiero tener ese histórico"), también
+        // se borran las recetas que usaba esa semana y ya no usa ninguna otra (con sus ingredientes y
+        // pasos); las que comparte con otra semana guardada se quedan. Ver schema.sql.
         db.saved_weeks = db.saved_weeks.filter(row => row.id !== id)
         db.week_meals = db.week_meals.filter(row => row.week_id !== id)
+        const inUse = new Set(db.week_meals.map(row => row.recipe_id))
+        db.recipes = db.recipes.filter(row => inUse.has(row.id))
+        db.recipe_ingredients = db.recipe_ingredients.filter(row => inUse.has(row.recipe_id))
+        db.recipe_steps = db.recipe_steps.filter(row => inUse.has(row.recipe_id))
         await persist(db)
         return true
       })

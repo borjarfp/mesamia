@@ -121,10 +121,12 @@
     display: none !important;
   }
 
-  /* Si se imprime con un Drawer abierto (p. ej. "Imprimir menú semanal" dentro del modal de
+  /* Si se imprime con un Drawer o Dialog abierto (p. ej. "Imprimir menú semanal" dentro del modal de
      confirmación), que no se imprima el propio Drawer encima del menú — solo el <PrintMenu>. */
   [data-slot='drawer-overlay'],
-  [data-slot='drawer-viewport'] {
+  [data-slot='drawer-viewport'],
+  [data-slot='dialog-overlay'],
+  [data-slot='dialog-popup'] {
     display: none !important;
   }
 

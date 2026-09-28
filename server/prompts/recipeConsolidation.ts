@@ -24,6 +24,7 @@ export function buildRecipeSelectionSystemInstruction(): string {
     '- title: título corto del plato (sin el nombre del sitio web ni texto de relleno).',
     '- description: una sola frase que resuma el plato de forma atractiva.',
     '- ingredients: la lista COMPLETA de ingredientes, en minúsculas y sin cantidades (se usa para comprobar ingredientes no permitidos, no omitas ninguno).',
+    '- steps: de 3 a 6 pasos breves (una frase cada uno) de cómo se hace, en orden. Si es web, resume fielmente los pasos de la página; si es "ia", los de tu receta.',
     '- totalTimeMinutes: tiempo total en minutos (el que indique la página si es web; si no lo indica, estímalo de forma realista).',
     '- difficulty: facil, media o dificil (ídem).',
     'Devuelve exclusivamente el JSON solicitado.',

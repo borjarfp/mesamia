@@ -70,3 +70,9 @@ export async function listHistory(): Promise<{ entries: HistoryEntry[] }> {
   const response = await fetch('/api/history', { cache: 'no-store' })
   return parseOrThrow(response)
 }
+
+// DELETE /api/history/[id] — borra una semana guardada (y sus recetas si ninguna otra semana las usa).
+export async function deleteHistoryEntry(id: string): Promise<void> {
+  const response = await fetch(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await parseOrThrow(response)
+}

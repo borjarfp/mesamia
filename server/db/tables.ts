@@ -38,6 +38,13 @@ export const RecipeIngredientRowSchema = z.object({
 })
 export type RecipeIngredientRow = z.infer<typeof RecipeIngredientRowSchema>
 
+export const RecipeStepRowSchema = z.object({
+  recipe_id: z.string().uuid(),
+  position: z.number().int().min(0),
+  text: z.string(),
+})
+export type RecipeStepRow = z.infer<typeof RecipeStepRowSchema>
+
 export const WeekMealRowSchema = z.object({
   week_id: z.string().uuid(),
   day: DayNameSchema,
@@ -52,16 +59,18 @@ export const LocalDatabaseSchema = z.object({
   saved_weeks: z.array(SavedWeekRowSchema),
   recipes: z.array(RecipeRowSchema),
   recipe_ingredients: z.array(RecipeIngredientRowSchema),
+  // .default([]): ficheros escritos antes de existir esta tabla no la traen.
+  recipe_steps: z.array(RecipeStepRowSchema).default([]),
   week_meals: z.array(WeekMealRowSchema),
 })
 export type LocalDatabase = z.infer<typeof LocalDatabaseSchema>
 
-export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, saved_weeks: [], recipes: [], recipe_ingredients: [], week_meals: [] })
+export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
 
 // Clave única de una receta (columna recipes.fingerprint): hash de TODO su contenido, así un plato
 // idéntico reutiliza la fila y cualquier diferencia (otra descripción, otro ingrediente) es otra
 // receta. Ver el comentario de la tabla recipes en schema.sql.
 export function recipeFingerprint(dish: FinalDish): string {
-  const content = [dish.title, dish.description, dish.ingredients, dish.proteinCategory, dish.sourceKind, dish.sourceName, dish.sourceUrl ?? null, dish.totalTimeMinutes ?? null, dish.difficulty ?? null]
+  const content = [dish.title, dish.description, dish.ingredients, dish.proteinCategory, dish.sourceKind, dish.sourceName, dish.sourceUrl ?? null, dish.totalTimeMinutes ?? null, dish.difficulty ?? null, dish.steps ?? []]
   return createHash('sha256').update(JSON.stringify(content)).digest('hex')
 }

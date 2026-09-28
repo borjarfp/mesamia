@@ -140,13 +140,14 @@ Respuesta: `{ alternatives: FinalDish[], violations: RuleViolation[] }`.
 - `POST /api/history` con `{ label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan }` → `{ entry: HistoryEntry }` (201).
   Es lo que dispara "Confirmar planificación" en el frontend, una vez conectado.
 - `GET /api/history/[id]` → `{ entry: HistoryEntry }` o 404.
-- `DELETE /api/history/[id]` → 204 o 404.
+- `DELETE /api/history/[id]` → 204 o 404. Borra también las recetas que ya no usa ninguna otra semana.
 
 **Persistencia**: Modelo relacional en `server/db/schema.sql` (DDL de PostgreSQL, hoy no se ejecuta en ningún
 sitio) y su espejo zod en `server/db/tables.ts`, con los mismos nombres de tabla y columna:
 
 ```
 saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+                                             1 ──< recipe_steps
 ```
 
 - `saved_weeks`: una fila por semana confirmada (`label`, `week_start` = lunes de la semana
@@ -156,9 +157,11 @@ saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
   contenido**: `fingerprint` (UNIQUE) es un sha256 de todo el plato. Un plato idéntico reutiliza la
   fila y cualquier diferencia crea otra, así que guardar una semana nueva nunca altera una antigua.
 - `recipe_ingredients`: ingredientes en orden (PK `recipe_id, position`), texto libre.
+- `recipe_steps`: pasos de "cómo se hace" en orden (PK `recipe_id, position`).
 
-Borrar una semana borra sus `week_meals` (CASCADE) pero **no** sus recetas: se quedan en el
-histórico de recetas.
+Borrar una semana borra sus `week_meals` (CASCADE) **y las recetas que se quedan sin usar** (con
+sus ingredientes y pasos). Las que comparte con otra semana guardada se quedan. Antes las recetas
+se conservaban siempre en el catálogo; cambió a petición ("no quiero tener ese histórico").
 
 **Almacenamiento actual**: `server/history/store.ts` guarda esas mismas tablas como filas en un
 único JSON, `.data/mesamia-db.json` dentro del proyecto (o `MESAMIA_DATA_DIR`; en Vercel,
@@ -178,7 +181,7 @@ ingredientes cena-vs-cole es una heurística de texto (normaliza acentos/mayúsc
 igualdad o contención), no NLP real — ver comentarios en `engine.ts`.
 
 Además, `restrictions.ts` aplica las restricciones de la familia en cada plato: sin marisco
-(pota/calamar/pulpo/sepia sí), sin atún, sin aceitunas, y como único pescado merluza o salmón. De
+(pota/calamar/pulpo/sepia sí), sin atún, sin aceitunas, sin champiñones ni tofu, y como único pescado merluza o salmón. De
 lunes a viernes, las recetas tienen que ser fáciles y de ≤ 50 min (`totalTimeMinutes`,
 `difficulty`). Se comprueban tanto sobre el plato planificado como sobre la receta web consolidada
 (Paso 4); una receta web que incumpla algo se descarta y el plato se queda como "Generado por IA".

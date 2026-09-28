@@ -4,6 +4,7 @@ import { ChevronLeft, Utensils } from 'lucide-react'
 import { historyStore } from '@/server/history/store'
 import { PageShell } from '@/components/menu/page-shell'
 import { RulesPanel } from '@/components/menu/rules-panel'
+import { DeleteWeekButton } from '@/components/menu/delete-week-button'
 import { WeekView } from '@/components/menu/week-view'
 
 export const runtime = 'nodejs'
@@ -25,7 +26,7 @@ export default async function SavedWeekPage({ params }: { params: Promise<{ slug
 
   return <PageShell>
     <header className="px-5 pb-4 pt-8 sm:px-8">
-      <Link href="/guardados" className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-800 print:hidden"><ChevronLeft className="size-4" />Volver</Link>
+      <div className="mb-4 flex items-center justify-between gap-3 print:hidden"><Link href="/guardados" className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-800"><ChevronLeft className="size-4" />Volver</Link><DeleteWeekButton id={entry.id} label={entry.label} redirectTo="/guardados" /></div>
       <div className="mb-6 flex items-center gap-2"><div className="flex size-9 items-center justify-center rounded-xl bg-emerald-600 text-white"><Utensils className="size-5" /></div><span className="font-semibold tracking-tight">Mesa<span className="text-emerald-600">Mía</span></span></div>
       <p className="mb-1 text-sm font-medium text-emerald-600">Semana guardada</p>
       <h1 className="text-3xl font-semibold tracking-tight">{entry.label}</h1>

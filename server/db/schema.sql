@@ -6,6 +6,7 @@
 -- e implementar HistoryStore con SQL — ni las rutas ni el frontend cambian.
 --
 --   saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+--                                              1 ──< recipe_steps
 --
 -- Una semana guardada tiene 14 week_meals (comida + cena × 7 días); cada uno apunta a una receta.
 -- Las recetas son un catálogo propio, compartido entre semanas: si dos semanas guardan exactamente
@@ -58,9 +59,20 @@ CREATE TABLE recipe_ingredients (
   PRIMARY KEY (recipe_id, position)
 );
 
+-- Pasos de "cómo se hace" de cada receta, en orden (3-6 frases breves). Una receta sin pasos
+-- (plato manual, o guardado antes de existir esta tabla) simplemente no tiene filas aquí.
+CREATE TABLE recipe_steps (
+  recipe_id  uuid    NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
+  position   integer NOT NULL CHECK (position >= 0),
+  text       text    NOT NULL,
+  PRIMARY KEY (recipe_id, position)
+);
+
 -- Qué receta ocupa cada hueco (día + comida/cena) de una semana guardada.
--- Borrar una semana borra sus huecos, pero NO las recetas (siguen en el histórico de recetas);
--- una receta que usa alguna semana no se puede borrar.
+-- Borrar una semana borra sus huecos (CASCADE). Además, la app borra en la misma transacción las
+-- recetas que se quedan sin usar (ninguna otra semana las usa), con sus ingredientes y pasos:
+--   DELETE FROM recipes r WHERE NOT EXISTS (SELECT 1 FROM week_meals m WHERE m.recipe_id = r.id);
+-- Una receta que todavía usa alguna semana no se puede borrar (RESTRICT).
 CREATE TABLE week_meals (
   week_id    uuid      NOT NULL REFERENCES saved_weeks (id) ON DELETE CASCADE,
   day        day_name  NOT NULL,

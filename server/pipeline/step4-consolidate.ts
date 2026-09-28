@@ -10,6 +10,7 @@ export type SelectedRecipe = {
   title: string
   description: string
   ingredients: string[]
+  steps: string[]
   totalTimeMinutes: number
   difficulty: Difficulty
   source: { kind: 'web'; url: string; name: RecipeSourceName } | { kind: 'ia' }

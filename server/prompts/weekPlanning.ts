@@ -7,6 +7,7 @@ export const FAMILY_RESTRICTION_LINES = [
   '- Sin marisco: nada de gambas, langostinos, mejillones, almejas, cangrejo, etc. Pota, calamar, pulpo y sepia SÍ están permitidos (clasifícalos como "pescado").',
   '- Sin atún (ni bonito), ni fresco ni en lata.',
   '- Sin aceitunas (el aceite de oliva sí está permitido).',
+  '- Sin champiñones y sin tofu.',
   '- El único pescado permitido es merluza o salmón (además de pota, calamar, pulpo o sepia). Ningún otro pescado, tampoco como ingrediente secundario (anchoas, bacalao...). En los platos de pescado, nombra la especie en el título o en mainIngredients.',
   `- De lunes a viernes (comida y cena), recetas fáciles (difficulty "facil") y rápidas: idealmente ${TARGET_WEEKDAY_MINUTES} min en total, nunca más de ${MAX_WEEKDAY_MINUTES} min (totalTimeMinutes). El fin de semana no tiene límite de tiempo ni de dificultad.`,
 ]

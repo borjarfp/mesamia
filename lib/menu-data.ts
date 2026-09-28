@@ -24,6 +24,7 @@ export const ruleGroups: Array<{ title: string; rules: string[] }> = [
       'Pescado: solo merluza o salmón. Ningún otro, tampoco como ingrediente secundario (anchoas, bacalao…).',
       'Sin atún ni bonito.',
       'Sin aceitunas (el aceite de oliva sí).',
+      'Sin champiñones ni tofu.',
     ],
   },
   {

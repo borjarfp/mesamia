@@ -32,6 +32,9 @@ function findTerms(texts: string[], terms: readonly string[]): string[] {
 const SHELLFISH = ['marisco', 'frutos del mar', 'gamba', 'langostino', 'camaron', 'cigala', 'carabinero', 'bogavante', 'langosta', 'cangrejo', 'necora', 'buey de mar', 'centolla', 'percebe', 'mejillon', 'almeja', 'berberecho', 'navaja', 'vieira', 'zamburiña', 'ostra', 'coquina', 'erizo de mar'] as const
 const TUNA = ['atun', 'bonito del norte'] as const
 const OLIVES = ['aceituna', 'olivas', 'olivada'] as const
+// Otros ingredientes que la familia no quiere. Solo champiñones (no todas las setas) y tofu, tal
+// como se pidió.
+const OTHER_BANNED = ['champiñon', 'tofu'] as const
 // Cualquier pescado que no sea merluza o salmón (incluso como ingrediente secundario, p. ej.
 // anchoas en una ensalada): "en las recetas de pescado solo pueden ser de merluza y de salmón".
 const OTHER_FISH = ['bacalao', 'dorada', 'lubina', 'sardina', 'boqueron', 'anchoa', 'caballa', 'rape', 'lenguado', 'trucha', 'emperador', 'pez espada', 'rodaballo', 'salmonete', 'mero', 'panga', 'tilapia', 'abadejo', 'bacaladilla', 'jurel', 'perca', 'palometa', 'corvina', 'besugo', 'cazon', 'raya', 'arenque', 'lucio'] as const
@@ -65,6 +68,9 @@ export function checkDishRestrictions(dish: RestrictionSubject): RuleViolation[]
 
   const olives = findTerms(texts, OLIVES)
   if (olives.length) violations.push({ rule: 'sin_aceitunas', day, meal, message: `${where} lleva aceitunas (${olives.join(', ')}), que no están permitidas.` })
+
+  const otherBanned = findTerms(texts, OTHER_BANNED)
+  if (otherBanned.length) violations.push({ rule: 'ingrediente_no_permitido', day, meal, message: `${where} lleva ${otherBanned.join(', ')}, que no está permitido (ni champiñones ni tofu).` })
 
   const otherFish = findTerms(texts, OTHER_FISH)
   if (otherFish.length) violations.push({ rule: 'pescado_no_permitido', day, meal, message: `${where} lleva ${otherFish.join(', ')}; el único pescado permitido es merluza o salmón (o pota, calamar, pulpo, sepia).` })

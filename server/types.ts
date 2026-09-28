@@ -102,6 +102,7 @@ export const ConsolidatedRecipeSchema = z.object({
   title: z.string().describe('Título corto y atractivo del plato'),
   description: z.string().describe('Una frase que resuma el plato'),
   ingredients: z.array(z.string()),
+  steps: z.array(z.string()).describe('De 3 a 6 pasos breves de cómo se hace, en orden'),
   totalTimeMinutes: z.number().int().describe('Tiempo total de la receta en minutos (el que indique la página; si no lo indica, estímalo)'),
   difficulty: DifficultySchema.describe('Dificultad de la receta (la que indique la página; si no la indica, estímala)'),
 })
@@ -142,6 +143,9 @@ export const FinalDishSchema = z.object({
   // escrito a mano en el Drawer tampoco.
   totalTimeMinutes: z.number().int().optional(),
   difficulty: DifficultySchema.optional(),
+  // "Cómo se hace", en pasos breves (Paso 4). Opcional por lo mismo que los dos de arriba, y porque
+  // un plato que se queda como lo planificó el Paso 2 (sin receta elegida) no los tiene.
+  steps: z.array(z.string()).optional(),
 })
 export type FinalDish = z.infer<typeof FinalDishSchema>
 
