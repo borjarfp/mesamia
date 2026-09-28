@@ -584,12 +584,19 @@ Borrar una semana borra sus `week_meals` (CASCADE) **y las recetas que se quedan
 sus ingredientes y pasos). Las que comparte con otra semana guardada se quedan. Antes las recetas
 se conservaban siempre en el catálogo; cambió a petición ("no quiero tener ese histórico").
 
-**Almacenamiento actual**: `server/history/store.ts` guarda esas mismas tablas como filas en un
-único JSON, `.data/mesamia-db.json` dentro del proyecto (o `MESAMIA_DATA_DIR`; en Vercel,
-`os.tmpdir()`, que es efímero). Escribe de forma atómica (fichero temporal + `rename`) y pone las
-escrituras en cola dentro del proceso. Si el JSON está corrupto, falla en vez de tratarlo como
-vacío, para que el siguiente guardado no borre el histórico. **Para pasar a una BD real**: ejecutar
-`schema.sql` e implementar `HistoryStore` con SQL; las rutas y el frontend no cambian.
+**Almacenamiento actual: Supabase (Postgres).** Si hay `DATABASE_URL`, `server/history/store.ts`
+exporta `createPostgresHistoryStore()` (`server/history/postgres-store.ts`, driver `pg`, pool de 3,
+SSL sin verificar cadena porque el pooler de Supabase no encadena). `DATABASE_URL` es el pooler
+transaccional (6543) y `DATABASE_URL_DIRECT` el de sesión (5432), ambos en `.env.local`. El esquema
+se aplicó con `pnpm db:migrate` (`scripts/db-migrate.mjs`, una sola vez: falla si ya existe). Las 5
+tablas tienen RLS activado **sin políticas**, para que la clave anon de Supabase (pública) no pueda
+leer ni escribir; la app solo entra por la conexión Postgres del servidor. El guardado es una
+transacción, y borrar una semana borra en la misma transacción las recetas huérfanas. Solo se
+usan esas dos variables: las claves `SUPABASE_*` y `NEXT_PUBLIC_SUPABASE_*` no se usan (no hay
+cliente supabase-js). **Sin `DATABASE_URL`** vuelve al JSON local (`.data/mesamia-db.json`, o
+`os.tmpdir()` en Vercel, efímero): útil en local, pero en Vercel hay que poner `DATABASE_URL` en las
+variables de entorno del proyecto o el historial se perderá y `/semana/<id>` dará 404. Probado con
+la BD real: guardar → listar → abrir `/semana/<id>` → reiniciar el servidor (sigue ahí) → borrar.
 
 ### Credenciales reales configuradas — el pipeline SÍ se ha probado contra Gemini y Tavily de verdad
 
@@ -746,9 +753,7 @@ menús → generar → sustituir un plato → confirmar y guardar →
 verlo en Guardados → abrir esa semana guardada de solo lectura. Lo que sigue faltando para un uso
 real, no ya de prototipo:
 
-- **Persistencia real.** El modelo relacional ya está definido (`server/db/schema.sql`), pero hoy
-  se guarda en un JSON local (`.data/mesamia-db.json`), que no sobrevive a un despliegue
-  serverless. Falta crear ese esquema en una BD real e implementar `HistoryStore` con SQL.
+- **Persistencia**: ya resuelta con Supabase (ver "Historial"). Falta solo configurar `DATABASE_URL` en Vercel.
 - Autenticación y gestión de familias/niños (hoy es de un único hogar sin usuarios; el historial es
   una única lista global compartida por cualquiera que use la app).
 - **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se

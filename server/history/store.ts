@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
+import { createPostgresHistoryStore } from './postgres-store'
 import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDatabase, type RecipeRow, type WeekMealRow } from '../db/tables'
 
 // Interfaz de persistencia del historial — deliberadamente pequeña e independiente de dónde vivan
@@ -158,4 +159,5 @@ function createLocalRelationalHistoryStore(): HistoryStore {
 
 // Instancia única compartida por todas las rutas (module-level singleton, como el resto de
 // clientes de server/clients/*).
-export const historyStore: HistoryStore = createLocalRelationalHistoryStore()
+// Con DATABASE_URL (Supabase) se usa Postgres; sin ella, el JSON local.
+export const historyStore: HistoryStore = process.env.DATABASE_URL ? createPostgresHistoryStore() : createLocalRelationalHistoryStore()

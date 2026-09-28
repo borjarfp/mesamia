@@ -1,9 +1,8 @@
 -- Modelo relacional del histórico de Guardados (PostgreSQL).
 --
--- Hoy NO se ejecuta contra ninguna base de datos: server/history/store.ts guarda exactamente estas
--- mismas tablas (mismos nombres de tabla y columna) como filas en un JSON local
--- (.data/mesamia-db.json). La siguiente iteración solo tiene que crear este esquema en una BD real
--- e implementar HistoryStore con SQL — ni las rutas ni el frontend cambian.
+-- Se ejecuta en Supabase (Postgres) y lo usa server/history/postgres-store.ts cuando hay
+-- DATABASE_URL. Sin ella, server/history/store.ts guarda las mismas tablas en un JSON local.
+-- Aplicar con: pnpm db:migrate
 --
 --   saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
 --                                              1 ──< recipe_steps
@@ -88,3 +87,12 @@ CREATE TABLE week_meals (
   PRIMARY KEY (week_id, day, meal)
 );
 CREATE INDEX week_meals_recipe_id_idx ON week_meals (recipe_id);
+
+-- Supabase expone el esquema `public` por PostgREST con la clave anon (que va en el cliente). La app
+-- accede solo desde el servidor con la conexión Postgres directa (rol postgres, que se salta RLS),
+-- así que se activa RLS SIN políticas: la clave anon no puede leer ni escribir nada.
+ALTER TABLE saved_weeks        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipes            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipe_ingredients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipe_steps       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE week_meals         ENABLE ROW LEVEL SECURITY;
