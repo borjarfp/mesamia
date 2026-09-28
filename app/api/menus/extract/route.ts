@@ -1,4 +1,4 @@
-import { parseSchoolMenuUploads, toErrorResponse } from '@/server/http'
+import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
 import { extractSchoolMenu } from '@/server/pipeline/step1-extract-school-menu'
 import { NextResponse } from 'next/server'
 
@@ -12,11 +12,14 @@ export const runtime = 'nodejs'
 //
 // Body: multipart/form-data. Un campo de formulario por niña, con su propio nombre como clave (p.
 // ej. "Aina", "Iria"), y uno o varios archivos (PDF, PNG, JPEG o WebP) adjuntos bajo ese campo.
+// Campo de texto opcional "weekStart" (YYYY-MM-DD): la semana a planificar, para elegir la semana
+// correcta de un menú mensual. La respuesta incluye menuStartDate/menuEndDate por niña si el
+// documento trae fechas.
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
     const uploads = await parseSchoolMenuUploads(formData)
-    const schoolMenu = await extractSchoolMenu(uploads)
+    const schoolMenu = await extractSchoolMenu(uploads, parseWeekStartField(formData))
     return NextResponse.json({ schoolMenu })
   } catch (error) {
     return toErrorResponse(error)

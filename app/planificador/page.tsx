@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, Check, ChevronLeft, ChevronRight, FileText, History, LoaderCircle, Sparkles, X } from 'lucide-react'
+import { AlertCircle, CalendarX2, Check, ChevronLeft, ChevronRight, FileText, History, Info, LoaderCircle, Sparkles, X } from 'lucide-react'
 import type { SchoolMenuExtraction, WeekPlan } from '@/server/types'
 import { ApiError, getTasteContext, planFullWeek } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -14,6 +14,7 @@ import { PageShell } from '@/components/menu/page-shell'
 import { RulesPanel } from '@/components/menu/rules-panel'
 import { TabNav } from '@/components/menu/tab-nav'
 import { WeekView } from '@/components/menu/week-view'
+import { checkSchoolMenuDates } from '@/lib/school-dates'
 import { getWeek, relativeWeekLabel } from '@/lib/week-dates'
 
 const CHILDREN = ['Aina', 'Iria'] as const
@@ -79,10 +80,16 @@ export default function PlanificadorPage() {
       {generating && <GenerationProgress done={generationDone} />}
       {generateError && <Alert className="mb-6 border-red-100 bg-red-50 text-red-800"><AlertCircle className="size-4" /><AlertDescription>{generateError}</AlertDescription></Alert>}
       {!generating && !week && <EmptyState />}
+      {week && schoolMenu && <SchoolDatesNotice check={checkSchoolMenuDates(schoolMenu, weekInfo.start)} weekLabel={weekInfo.label} />}
       {week && <WeekView key={week.generatedAt} week={week} schoolMenu={schoolMenu} weekLabel={weekInfo.label} weekStart={weekInfo.start} dateLabels={weekInfo.dateLabels} />}
     </div>
   </PageShell>
 }
+
+// Aviso tras generar si el menú del cole subido no es de la semana planificada (o no trae fechas).
+// Se recalcula con la semana elegida en cada render, así que cambiar de semana con las flechas lo
+// actualiza al momento.
+function SchoolDatesNotice({ check, weekLabel }: { check: ReturnType<typeof checkSchoolMenuDates>; weekLabel: string }) { return <>{check.mismatched.length > 0 && <Alert className="mb-4 border-amber-200 bg-amber-50 text-amber-900 print:hidden"><CalendarX2 className="size-4" /><AlertDescription className="text-amber-900"><p className="font-semibold">El menú de las niñas que has subido no coincide con la semana que estás planificando ({weekLabel}).</p><ul className="mt-1 list-disc pl-4">{check.mismatched.map(item => <li key={item.child}>Menú de {item.child}: {item.range}</li>)}</ul><p className="mt-1">Revisa los archivos o cambia de semana con las flechas de arriba. El menú se ha generado igualmente con ese menú del cole.</p></AlertDescription></Alert>}{check.unknown.length > 0 && <p className="mb-4 flex items-start gap-1.5 text-xs text-slate-500 print:hidden"><Info className="mt-0.5 size-3.5 shrink-0" />No hemos podido comprobar las fechas del menú de {check.unknown.join(' y ')}: el documento no las indica.</p>}</> }
 
 function WeekPicker({ label, onPrev, onNext, onReset }: { label: string; onPrev: () => void; onNext: () => void; onReset?: () => void }) { return <div><div className="flex items-center gap-1"><Button variant="ghost" size="icon" onClick={onPrev} className="-ml-2 shrink-0 rounded-full text-slate-500" aria-label="Semana anterior"><ChevronLeft /></Button><h1 className="min-w-0 text-center text-2xl font-semibold tracking-tight sm:text-3xl">{label}</h1><Button variant="ghost" size="icon" onClick={onNext} className="shrink-0 rounded-full text-slate-500" aria-label="Semana siguiente"><ChevronRight /></Button></div>{onReset && <button type="button" onClick={onReset} className="mt-1 text-xs font-medium text-emerald-700 hover:underline">Volver a la semana que viene</button>}</div> }
 

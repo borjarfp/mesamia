@@ -28,6 +28,14 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024
 // Contrato de subida: cada niña es un campo del formulario cuyo nombre es su propio nombre (p. ej.
 // "Aina", "Iria"), con uno o varios archivos adjuntos bajo ese mismo campo. No hay una lista
 // separada de "a quién pertenece cada archivo": el nombre del campo ya lo dice.
+// Campo de texto opcional "weekStart" (YYYY-MM-DD) de un multipart: undefined si no viene.
+export function parseWeekStartField(formData: FormData): string | undefined {
+  const value = formData.get('weekStart')
+  if (typeof value !== 'string' || !value) return undefined
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
+  return value
+}
+
 export async function parseSchoolMenuUploads(formData: FormData): Promise<SchoolMenuUpload[]> {
   const byChild = new Map<string, SchoolMenuUpload>()
 

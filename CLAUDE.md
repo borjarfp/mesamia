@@ -71,6 +71,8 @@ lib/week-dates.ts      dayLabel() (mostrar los DayName del backend, en minúscul
 lib/utils.ts           cn() = twMerge(clsx(...))
 public/                iconos e imágenes placeholder
 app/api/**/route.ts    Endpoints del backend real — ver sección "Backend". El frontend SÍ los usa.
+docs/arquitectura.md   4 diagramas Mermaid (arquitectura, pipeline, recorrido del usuario, modelo de
+                       datos). Actualizarlos si cambian el pipeline, las rutas o las tablas.
 server/db/             Modelo relacional del historial: schema.sql (DDL Postgres) + tables.ts (filas zod).
 server/                Lógica del backend: pipeline de IA, motor de reglas, clientes de Gemini y
                        Tavily, historial. Ver server/README.md y la sección "Backend" más abajo.
@@ -393,6 +395,33 @@ menú escolar — `DishSourceKindSchema` ni siquiera admite un valor `'escolar'`
 y `FinalDish` no lleva ya un campo `child`. Una versión anterior de este documento describía lo
 contrario (el pipeline solo planificaba 9 huecos y colocaba el menú escolar real en la comida
 L-V) — quedó descartado por completo, ver "Reglas dietéticas y la comida de lunes a viernes" arriba.
+
+### Aviso si el menú del cole no es de la semana planificada (`lib/school-dates.ts`)
+
+A petición: *"si el menú que estoy adjuntando no coincide con las fechas, cuando termine de
+generarlo, me saque un aviso"*. Funciona así:
+- **El Paso 1 lee las fechas**: `ChildSchoolMenu.menuStartDate`/`menuEndDate` (YYYY-MM-DD,
+  opcionales, solo si el documento las indica; nunca se deducen). Recibe además la semana que se
+  planifica (`weekStart`, que `/api/menus/plan` y `/extract` aceptan como campo de texto,
+  `parseWeekStartField` en `server/http.ts`). Con ella elige la semana correcta de un **menú
+  mensual** y pone el año a fechas que no lo traen ("12 d'octubre"). Las fechas mal formadas se
+  descartan en `extractSchoolMenu`.
+- **La comparación es código, no la IA**: `checkSchoolMenuDates(schoolMenu, weekStart)` es una
+  función pura del frontend. Un menú coincide si su rango se solapa con el lunes-viernes
+  planificado (si solo hay inicio, se asumen 5 días). Devuelve `mismatched` (con el rango para
+  mostrarlo) y `unknown` (menús sin fechas).
+- **En pantalla**: `SchoolDatesNotice` en `/planificador`, entre el botón Generar y la semana.
+  - Si alguna fecha no coincide: `Alert` ámbar con "El menú de las niñas que has subido no coincide
+    con la semana que estás planificando (…)" y el rango de cada menú.
+  - Si un documento no trae fechas: una línea gris, "No hemos podido comprobar las fechas…".
+
+  Se calcula en cada render con la semana elegida, así que **cambiar de semana con las flechas
+  después de generar actualiza el aviso** sin regenerar. El menú se genera igualmente, porque el
+  aviso no bloquea.
+- **Probado** con 3 PDF sintéticos en catalán y Gemini real: "Setmana del 12 al 16 d'octubre" sin
+  año planificando el 5-11 dio `2026-10-12 → 2026-10-16`; uno sin fechas no dio ninguna; y uno
+  mensual de 2 semanas planificando el 12-18 extrajo la segunda semana. En Chrome, el aviso aparece
+  tras generar y desaparece al pasar a la semana que coincide. No se ha probado con los PDF reales.
 
 ### Menú escolar de Aina: comida parecida y proposta de sopar (`server/prompts/schoolContext.ts`)
 

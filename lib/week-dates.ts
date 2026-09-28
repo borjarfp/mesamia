@@ -50,8 +50,7 @@ export function getWeek(offset = 0, reference = new Date()): WeekInfo {
   })
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6)
-  const start = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
-  return { label: formatWeekRange(monday, sunday), start, dateLabels }
+  return { label: formatWeekRange(monday, sunday), start: toIsoDate(monday), dateLabels }
 }
 
 // Texto relativo de una semana respecto a la actual, para el selector de semana del planificador.
@@ -60,4 +59,20 @@ export function relativeWeekLabel(offset: number): string {
   if (offset === 1) return 'La semana que viene'
   if (offset === -1) return 'La semana pasada'
   return offset > 0 ? `Dentro de ${offset} semanas` : `Hace ${-offset} semanas`
+}
+
+// "YYYY-MM-DD" → Date en hora local (new Date('YYYY-MM-DD') la interpretaría en UTC y en husos
+// horarios negativos saldría el día anterior).
+export function parseIsoDate(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+export function toIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// Rango de fechas ISO para mostrar ("12 — 16 octubre"), con el mismo formato que las semanas.
+export function formatIsoRange(start: string, end: string): string {
+  return formatWeekRange(parseIsoDate(start), parseIsoDate(end))
 }

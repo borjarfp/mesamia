@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server'
-import { ValidationError } from '@/server/errors'
 import { getTasteContext } from '@/server/history/taste-context'
-import { parseSchoolMenuUploads, toErrorResponse } from '@/server/http'
+import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
 import { planFullWeek } from '@/server/pipeline/orchestrator'
-import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-const WeekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // POST /api/menus/plan
 // Pipeline completo, Pasos 1 a 4 en una sola llamada: sube los PDF/imágenes del menú escolar y
@@ -24,12 +21,10 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData()
     const uploads = await parseSchoolMenuUploads(formData)
-    const rawWeekStart = formData.get('weekStart')
-    const weekStart = typeof rawWeekStart === 'string' && rawWeekStart ? WeekStartSchema.safeParse(rawWeekStart) : null
-    if (weekStart && !weekStart.success) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
+    const weekStart = parseWeekStartField(formData)
 
-    const taste = await getTasteContext(weekStart?.data)
-    const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text)
+    const taste = await getTasteContext(weekStart)
+    const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text, weekStart)
     return NextResponse.json({ schoolMenu, week, violations })
   } catch (error) {
     return toErrorResponse(error)

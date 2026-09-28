@@ -39,6 +39,11 @@ export type SchoolMealEntry = z.infer<typeof SchoolMealEntrySchema>
 
 export const ChildSchoolMenuSchema = z.object({
   child: z.string().describe('Nombre de la niña a la que pertenece este menú (p. ej. "Aina" o "Iria")'),
+  // Fechas reales del menú extraído, si el documento las indica. Sirven para avisar si el menú
+  // subido no es de la semana que se está planificando (lib/school-dates.ts); sin ellas no se puede
+  // comprobar. Las lee Gemini, pero la comparación la hace el código.
+  menuStartDate: z.string().optional().describe('Fecha del primer día del menú extraído, YYYY-MM-DD. Omítelo si el documento no indica fechas'),
+  menuEndDate: z.string().optional().describe('Fecha del último día del menú extraído, YYYY-MM-DD. Omítelo si el documento no indica fechas'),
   meals: z.array(SchoolMealEntrySchema),
 })
 export type ChildSchoolMenu = z.infer<typeof ChildSchoolMenuSchema>

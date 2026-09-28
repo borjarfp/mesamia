@@ -176,7 +176,9 @@ vacío, para que el siguiente guardado no borre el histórico. **Para pasar a un
 ## Menú escolar como contexto (`server/prompts/schoolContext.ts`)
 
 El Paso 1 extrae, además de la comida de cada día, la "proposta de sopar" si el menú la trae
-(`dinnerSuggestion`, opcional). Planificación y sustitución reciben el menú escolar en texto por
+(`dinnerSuggestion`, opcional), y las fechas del menú (`menuStartDate`/`menuEndDate`, si el
+documento las indica). Con `weekStart` elige la semana correcta de un menú mensual. El frontend
+compara esas fechas con la semana planificada y avisa si no coinciden (`lib/school-dates.ts`). Planificación y sustitución reciben el menú escolar en texto por
 día (`formatSchoolDay`), con estas instrucciones (`SCHOOL_CONTEXT_LINES`):
 - la comida de los adultos de L-V se parece a la de Aina (`REFERENCE_CHILD`);
 - la cena se inspira en su proposta de sopar;

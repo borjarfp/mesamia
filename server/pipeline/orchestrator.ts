@@ -28,8 +28,8 @@ export type PlanFullWeekResult = GenerateResult & { schoolMenu: SchoolMenuExtrac
 // Pipeline completo, Pasos 1 → 4, de una sola vez: el caso de uso que dispara el botón único
 // "Generar menú semanal inteligente" del frontend (sube los PDF/imágenes y quiere la semana ya
 // lista, sin pasos intermedios).
-export async function planFullWeek(uploads: SchoolMenuUpload[], tasteContext?: string): Promise<PlanFullWeekResult> {
-  const schoolMenu = await extractSchoolMenu(uploads)
+export async function planFullWeek(uploads: SchoolMenuUpload[], tasteContext?: string, weekStart?: string): Promise<PlanFullWeekResult> {
+  const schoolMenu = await extractSchoolMenu(uploads, weekStart)
   const result = await generateFromSchoolMenu(schoolMenu, tasteContext)
   return { schoolMenu, ...result }
 }
