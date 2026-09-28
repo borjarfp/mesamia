@@ -717,6 +717,15 @@ lectura (0 "Cambiar") y que el plato sustituido antes de confirmar es el que que
   puede dar falsos positivos/negativos); hay que forzar el viewport por CDP
   (`Emulation.setDeviceMetricsOverride`) o revisar `document.documentElement.scrollWidth` en un
   navegador real.
+- **Nunca leer un `FileList` (ni `dataTransfer.files`) dentro del updater de un `setState`.** Es un
+  objeto vivo: `input.value = ''` lo vacía en el acto, y el `DataTransfer` de un drop se bloquea al
+  acabar el evento. React puede ejecutar el updater más tarde (depende de si hay otras
+  actualizaciones pendientes), y entonces encuentra la lista vacía. No da ningún error: el archivo
+  simplemente no aparece. Pasó de verdad en `/planificador`: el primer PDF entraba y **a partir del
+  segundo no salía nada en el cuadrado verde**, reproducido subiendo 3 archivos seguidos por CDP. Por
+  eso `addFiles` hace `Array.from(files)` síncrono antes de `setUploaded`, y además ignora un
+  archivo que ya está en la lista (mismo `id` = nombre + tamaño + fecha). Un test que solo sube
+  UN archivo no lo detecta.
 - **Headless Chrome recién arrancado: la pestaña está `visibilityState: 'hidden'` y
   `requestAnimationFrame` no se ejecuta.** Los modales de base-ui (Dialog/Drawer) se quedan para
   siempre en `data-starting-style` (opacidad 0) y parecen rotos, pero no lo están: con la pestaña

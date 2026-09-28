@@ -38,7 +38,15 @@ export default function PlanificadorPage() {
   const [tasteWeeks, setTasteWeeks] = useState<string[] | null>(null)
   useEffect(() => { let active = true; getTasteContext(weekInfo.start).then(result => { if (active) setTasteWeeks(result.weeks.map(week => week.label)) }).catch(() => { if (active) setTasteWeeks(null) }); return () => { active = false } }, [weekInfo.start])
 
-  const addFiles = (files: FileList | File[] | null) => setUploaded(current => [...current, ...Array.from(files ?? []).map(file => ({ id: `${file.name}-${file.size}-${file.lastModified}`, file, child: 'Aina' as ChildName }))])
+  // Los archivos se copian a un array AQUÍ, de forma síncrona, y no dentro del updater de
+  // setUploaded: React puede ejecutar ese updater más tarde, y para entonces el FileList ya está
+  // vacío — es un objeto "vivo" que se vacía al hacer `input.value = ''` justo después (y el
+  // DataTransfer de un drop se bloquea al acabar el evento). Así fallaba sin ningún error: el primer
+  // archivo entraba, pero a partir del segundo no aparecía nada en el cuadrado verde.
+  const addFiles = (files: FileList | File[] | null) => {
+    const added = Array.from(files ?? []).map(file => ({ id: `${file.name}-${file.size}-${file.lastModified}`, file, child: 'Aina' as ChildName }))
+    if (added.length > 0) setUploaded(current => [...current, ...added.filter(item => !current.some(existing => existing.id === item.id))])
+  }
   const removeFile = (id: string) => setUploaded(current => current.filter(item => item.id !== id))
   const setFileChild = (id: string, child: ChildName) => setUploaded(current => current.map(item => item.id === id ? { ...item, child } : item))
 
