@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { AlertCircle, Check, ChevronLeft, ChevronRight, FileText, LoaderCircle, Sparkles, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertCircle, Check, ChevronLeft, ChevronRight, FileText, History, LoaderCircle, Sparkles, X } from 'lucide-react'
 import type { SchoolMenuExtraction, WeekPlan } from '@/server/types'
-import { ApiError, planFullWeek } from '@/lib/api'
+import { ApiError, getTasteContext, planFullWeek } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,10 @@ export default function PlanificadorPage() {
   // la que ya está en curso. Con las flechas del header se puede elegir cualquier otra.
   const [weekOffset, setWeekOffset] = useState(1)
   const weekInfo = getWeek(weekOffset)
+  // Qué semanas guardadas verá la IA como historial de gustos al planificar la semana elegida (las 3
+  // anteriores, ver server/history/taste-context.ts). Solo informativo: el servidor lo calcula solo.
+  const [tasteWeeks, setTasteWeeks] = useState<string[] | null>(null)
+  useEffect(() => { let active = true; getTasteContext(weekInfo.start).then(result => { if (active) setTasteWeeks(result.weeks.map(week => week.label)) }).catch(() => { if (active) setTasteWeeks(null) }); return () => { active = false } }, [weekInfo.start])
 
   const addFiles = (files: FileList | File[] | null) => setUploaded(current => [...current, ...Array.from(files ?? []).map(file => ({ id: `${file.name}-${file.size}-${file.lastModified}`, file, child: 'Aina' as ChildName }))])
   const removeFile = (id: string) => setUploaded(current => current.filter(item => item.id !== id))
@@ -61,7 +65,7 @@ export default function PlanificadorPage() {
     const byChild = new Map<ChildName, File[]>()
     for (const item of uploaded) byChild.set(item.child, [...(byChild.get(item.child) ?? []), item.file])
     const uploads = Array.from(byChild, ([child, files]) => ({ child, files }))
-    runGenerate(() => planFullWeek(uploads))
+    runGenerate(() => planFullWeek(uploads, weekInfo.start))
   }
 
   return <PageShell>
@@ -71,10 +75,11 @@ export default function PlanificadorPage() {
       <Card onDragOver={event => { event.preventDefault(); setDragActive(true) }} onDragLeave={() => setDragActive(false)} onDrop={event => { event.preventDefault(); setDragActive(false); addFiles(event.dataTransfer.files) }} className={`mb-5 overflow-hidden border-emerald-100 bg-emerald-50/60 shadow-none transition print:hidden ${dragActive ? 'border-emerald-400 bg-emerald-100/60 ring-2 ring-emerald-300' : ''}`}><CardContent className="p-4"><div className="flex items-start gap-3"><div className="mt-0.5 rounded-lg bg-white p-2 text-emerald-600"><FileText className="size-5" /></div><div className="min-w-0 flex-1"><p className="font-medium">Menús del cole / guardería</p><p className="mt-0.5 text-xs leading-relaxed text-slate-500">Arrastra o sube los PDF o imágenes de Aina e Iria — toca el nombre en cada archivo si hay que corregir a quién pertenece.</p>{uploaded.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{uploaded.map(item => <Badge key={item.id} variant="secondary" className="gap-1.5 bg-white text-xs"><Check className="size-3 text-emerald-600" />{item.file.name}<span className="flex gap-0.5">{CHILDREN.map(child => <button key={child} type="button" onClick={() => setFileChild(item.id, child)} className={`rounded px-1 text-[10px] font-semibold transition ${item.child === child ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-700'}`}>{child}</button>)}</span><button onClick={() => removeFile(item.id)} aria-label={`Quitar ${item.file.name}`}><X className="size-3" /></button></Badge>)}</div>}</div><label className="cursor-pointer rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"><input type="file" accept=".pdf,image/*" multiple className="sr-only" onChange={event => { addFiles(event.target.files); event.target.value = '' }} />Subir</label></div></CardContent></Card>
       <RulesPanel />
       <Button onClick={handleGenerate} disabled={generating} className="mb-6 h-auto min-h-12 w-full whitespace-normal rounded-xl bg-emerald-600 py-3 text-base font-semibold leading-snug shadow-lg shadow-emerald-600/15 hover:bg-emerald-700">{generating ? <><LoaderCircle className="animate-spin" data-icon="inline-start" />Analizando menús y buscando recetas...</> : <><Sparkles data-icon="inline-start" />Generar menú semanal inteligente</>}</Button>
+      {tasteWeeks && <p className="-mt-4 mb-6 flex items-start gap-1.5 text-xs text-slate-500 print:hidden"><History className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />{tasteWeeks.length > 0 ? <>La IA tendrá en cuenta lo que aceptasteis y cambiasteis en: {tasteWeeks.join(' · ')}.</> : <>Aún no hay semanas guardadas anteriores a esta: cuando confirméis semanas, la IA aprenderá de lo que cambiéis.</>}</p>}
       {generating && <GenerationProgress done={generationDone} />}
       {generateError && <Alert className="mb-6 border-red-100 bg-red-50 text-red-800"><AlertCircle className="size-4" /><AlertDescription>{generateError}</AlertDescription></Alert>}
       {!generating && !week && <EmptyState />}
-      {week && <WeekView week={week} schoolMenu={schoolMenu} weekLabel={weekInfo.label} weekStart={weekInfo.start} dateLabels={weekInfo.dateLabels} />}
+      {week && <WeekView key={week.generatedAt} week={week} schoolMenu={schoolMenu} weekLabel={weekInfo.label} weekStart={weekInfo.start} dateLabels={weekInfo.dateLabels} />}
     </div>
   </PageShell>
 }

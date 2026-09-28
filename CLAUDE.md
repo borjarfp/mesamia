@@ -297,6 +297,19 @@ Paso 2 para que la cena de ese día no repita categoría de proteína ni ingredi
 niñas ya comieron en el cole. Ver "El pipeline, en una frase por paso" más abajo para el diseño
 vigente.
 
+**Actualización posterior (vigente), también a petición explícita**: el menú de **Aina** ya no
+sirve solo para no repetir. El usuario pidió *"tener en cuenta la propuesta de cena que dice el
+menú de Aina y también la comida que va a tener ella para tener cosas semejantes"*, y al preguntarle
+eligió estas dos opciones:
+- **La comida de los adultos de lunes a viernes se PARECE a lo que come Aina** en el cole ese día
+  (mismo tipo de plato o proteína principal, en versión adulta).
+- **La cena se INSPIRA en la "proposta de sopar"** que trae el menú de Aina para cada día. Es solo
+  una sugerencia, no una obligación.
+
+La regla de que la cena no repite lo del cole **se mantiene** y va por encima de la proposta. El
+menú escolar sigue sin ocupar un hueco ni mostrarse. Iria (guardería) solo cuenta para no repetir.
+Ver "Menú escolar de Aina: comida parecida y proposta de sopar" más abajo.
+
 ## Backend (`server/` + `app/api/**`)
 
 Pipeline de IA real para generar/sustituir menús, con endpoints de Next.js (App Router Route
@@ -334,8 +347,9 @@ ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de ni
    resultado con `server/rules/engine.ts`, que es código determinista, no el LLM marcando su
    propia tarea. Si incumple algo, reintenta pasándole el detalle exacto de qué falló (hasta 3
    veces) — es lo que convierte esto en un pipeline con verificación, no una llamada a ciegas. El
-   menú escolar de las niñas se le da como contexto únicamente para que las cenas de lunes a
-   viernes no lo repitan; no limita en nada la comida de esos días.
+   menú escolar de las niñas se le da como contexto para tres cosas: que la comida de los adultos
+   se parezca a la de Aina, que la cena se inspire en su "proposta de sopar", y que la cena no lo
+   repita (ver "Menú escolar de Aina" más abajo).
 3. **Candidatas** (`step3-fetch-recipes.ts`, Tavily) — una búsqueda por plato, todas en
    `Promise.all` (concurrentes, como pide el enunciado). Restringida a `cookidoo.es`,
    `elpais.com/gastronomia/el-comidista`, `directoalpaladar.com`, `cookpad.com`, `petitchef.es`
@@ -380,6 +394,30 @@ y `FinalDish` no lleva ya un campo `child`. Una versión anterior de este docume
 contrario (el pipeline solo planificaba 9 huecos y colocaba el menú escolar real en la comida
 L-V) — quedó descartado por completo, ver "Reglas dietéticas y la comida de lunes a viernes" arriba.
 
+### Menú escolar de Aina: comida parecida y proposta de sopar (`server/prompts/schoolContext.ts`)
+
+- **Extracción (Paso 1)**: `SchoolMealEntry` tiene un campo opcional `dinnerSuggestion`, que es la
+  "proposta de sopar" (o "propuesta de cena", "per sopar"...) copiada tal cual, sin traducir. Si el
+  menú no la trae (el de Iria), se omite y nunca se inventa.
+- **Contexto para el LLM**: `formatSchoolDay`/`formatSchoolWeek` pasan el menú escolar a texto, un
+  día por bloque, con lo que come cada niña (proteína e ingredientes) y la proposta si la hay.
+  Sustituye al `JSON.stringify(schoolMenu)` de antes. `SCHOOL_CONTEXT_LINES` son las instrucciones:
+  comida de adultos parecida a la de `REFERENCE_CHILD` (`'Aina'`), cena inspirada en su proposta y
+  regla de no repetir obligatoria. Lo comparten la planificación y la sustitución.
+- **Es orientación para el LLM, no una regla del motor**: el "parecido" no se valida con código. Lo
+  que sí sigue siendo determinista es el no repetir en la cena y los límites semanales. Ojo: como la
+  comida de los adultos copia la proteína del cole, si Aina come carne roja ese día, esa comida se
+  lleva el único cupo semanal de carne roja.
+- **De paso se arregló** que el prompt de "Buscar alternativas" decía "(se te da como contexto)"
+  refiriéndose a la comida escolar, pero nunca la incluía. Gemini proponía a ciegas y solo el motor
+  de reglas lo cazaba después, con un reintento. Ahora recibe `formatSchoolDay` de ese día.
+- **Probado** con un PDF sintético en catalán que imitaba el de Aina (5 días con "Proposta de
+  sopar"): la extracción leyó las 5 propuestas literalmente. En la planificación, solo Paso 2, la
+  comida de adultos coincidió en tipo con la de Aina los 5 días, y la cena siguió la proposta en 4.
+  El miércoles se apartó correctamente: la proposta era de garbanzos, pero Iria comía lentejas y
+  una cena de legumbre habría repetido proteína. Salieron 0 violaciones en 2 intentos. **No se ha
+  probado con el PDF real de Aina.**
+
 ### Cookidoo: búsqueda aparte (opción B, elegida por el usuario por coste de Tavily)
 
 Antes casi nunca salía Cookidoo, y no era un fallo. Se investigó con 5 platos típicos:
@@ -413,6 +451,40 @@ curry, lentejas, salmón), Cookidoo llegó como candidata en los 6 y ganó en 5.
 completa ganó solo en 1 de 14, porque Gemini planifica platos más elaborados ("Crema de calabacín
 con picatostes", "Hummus con crudités") y la búsqueda de Cookidoo encuentra otro plato o ninguno.
 Es lo esperado, no un fallo.
+
+### Historial de gustos: la IA aprende de las 3 semanas anteriores (`server/history/taste-context.ts`)
+
+A petición: *"cuando el LLM analice la semana que tiene que crear, vea las 3 semanas anteriores
+para que aprenda de los gustos y modificaciones"*. **Antes esto no existía de verdad**:
+`planWeek` ya tenía un parámetro `history` (`HistorySummary`, que se eliminó), pero el frontend
+nunca lo rellenaba, y al guardar una semana no quedaba rastro de lo que se había cambiado.
+
+- **Qué se guarda**: al "Confirmar y guardar", `WeekView` compara la propuesta original (`week.days`,
+  la prop, que no se modifica) con el estado final (`diffChanges`, comparando título + URL). Cada
+  hueco distinto es un `MealChange { day, meal, proposedTitle, kind }`, con `kind` `'manual'` si
+  el plato final es `sourceName: 'Manual'` y `'alternativa'` si no. Va en `POST /api/history`
+  (`changes`) y en BD son las columnas `week_meals.proposed_title` + `change_kind` (ambas NULL =
+  aceptado tal cual). Las semanas guardadas antes de esto no tienen cambios y cuentan como "todo
+  aceptado".
+- **Qué ve el LLM**: `getTasteContext(weekStart)` elige las 3 semanas guardadas **estrictamente
+  anteriores** a la que se planifica (si una semana se guardó varias veces, cuenta la última) y
+  las formatea en texto, una línea por plato: "aceptado tal cual" / "CAMBIADO: la IA había
+  propuesto X" / "ESCRITO A MANO …". `TASTE_CONTEXT_INSTRUCTIONS` le dice cómo interpretarlo: lo
+  escrito a mano es la señal más fuerte, lo aceptado es débil, que busque patrones, que no repita
+  platos de la semana anterior y que las reglas mandan siempre. Se calcula en el momento desde el
+  `HistoryStore` (no hay un fichero aparte que mantener).
+- **Dónde se usa**: el servidor lo añade solo en `/api/menus/plan`, `/generate` y `/substitute`,
+  a partir de `weekStart`, que ahora manda el frontend. `GET /api/history/context?weekStart=` devuelve
+  exactamente ese texto (para depurar), y el planificador lo usa para decir debajo del botón
+  Generar qué semanas tendrá en cuenta la IA.
+- **Probado**: la selección de semanas por la API; el guardado de un cambio "escrito a mano" desde
+  Chrome; y solo el Paso 2 con Gemini, con y sin historial, sobre semanas de prueba que pedían
+  curry, pasta y pizza y rechazaban hummus, cremas y salmón con boniato. Con historial salieron 2
+  platos de pasta (uno "boloñesa", como el escrito a mano) y una pizza, y desaparecieron el hummus
+  y las cremas, con 0 violaciones en ambos casos. El curry no apareció.
+- **De paso se arregló** que `/planificador` no pasaba `key` a `WeekView`: al generar una segunda
+  semana en la misma sesión, `WeekView` conservaba los `days` de la primera en su estado interno.
+  Ahora lleva `key={week.generatedAt}`.
 
 ### Restricciones de la familia (`server/rules/restrictions.ts`)
 

@@ -2,7 +2,7 @@ import { generateStructured, textPart } from '../clients/gemini'
 import { GEMINI_MODEL_PRO } from '../env'
 import { buildWeekPlanningSystemInstruction, buildWeekPlanningUserPrompt } from '../prompts/weekPlanning'
 import { validateWeekDraft } from '../rules/engine'
-import { PLANNED_SLOTS, WeekPlanDraftSchema, type HistorySummary, type PlannedDish, type RuleViolation, type SchoolMenuExtraction } from '../types'
+import { PLANNED_SLOTS, WeekPlanDraftSchema, type PlannedDish, type RuleViolation, type SchoolMenuExtraction } from '../types'
 
 const MAX_PLANNING_ATTEMPTS = 3
 
@@ -17,7 +17,7 @@ export type PlanWeekResult = {
 // incumplimientos, se reintenta pasándole exactamente qué ha fallado, hasta MAX_PLANNING_ATTEMPTS
 // veces. Esto es lo que convierte el paso en un pipeline con verificación, no una única llamada a
 // ciegas: la fuente de verdad de "¿cumple las reglas?" es siempre nuestro código, nunca el LLM.
-export async function planWeek(schoolMenu: SchoolMenuExtraction, history?: HistorySummary[]): Promise<PlanWeekResult> {
+export async function planWeek(schoolMenu: SchoolMenuExtraction, tasteContext?: string): Promise<PlanWeekResult> {
   let violations: RuleViolation[] = []
   let slots: PlannedDish[] = []
 
@@ -26,7 +26,7 @@ export async function planWeek(schoolMenu: SchoolMenuExtraction, history?: Histo
       model: GEMINI_MODEL_PRO,
       schema: WeekPlanDraftSchema,
       systemInstruction: buildWeekPlanningSystemInstruction(),
-      contents: [{ role: 'user', parts: [textPart(buildWeekPlanningUserPrompt(schoolMenu, history, violations))] }],
+      contents: [{ role: 'user', parts: [textPart(buildWeekPlanningUserPrompt(schoolMenu, tasteContext, violations))] }],
       // Un poco más de determinismo en la planificación que en la extracción/consolidación: aquí
       // interesa que respete las reglas de forma consistente entre reintentos.
       temperature: 0.3,

@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
-import { parseOptionalJsonField, parseSchoolMenuUploads, toErrorResponse } from '@/server/http'
+import { ValidationError } from '@/server/errors'
+import { getTasteContext } from '@/server/history/taste-context'
+import { parseSchoolMenuUploads, toErrorResponse } from '@/server/http'
 import { planFullWeek } from '@/server/pipeline/orchestrator'
-import { HistorySummarySchema } from '@/server/types'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-const HistoryFieldSchema = z.array(HistorySummarySchema)
+const WeekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // POST /api/menus/plan
 // Pipeline completo, Pasos 1 a 4 en una sola llamada: sube los PDF/imágenes del menú escolar y
@@ -16,14 +17,19 @@ const HistoryFieldSchema = z.array(HistorySummarySchema)
 // /api/menus/generate por separado.
 //
 // Body: multipart/form-data. Un campo por niña con su nombre como clave (p. ej. "Aina", "Iria") y
-// sus archivos adjuntos, más un campo de texto opcional "history" con el JSON de HistorySummary[].
+// sus archivos adjuntos, más un campo de texto opcional "weekStart" (YYYY-MM-DD, lunes de la semana
+// a planificar). El historial de gustos (las 3 semanas guardadas anteriores a esa, ver
+// server/history/taste-context.ts) lo añade el servidor solo; sin weekStart, las 3 más recientes.
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
     const uploads = await parseSchoolMenuUploads(formData)
-    const history = parseOptionalJsonField(formData.get('history'), value => HistoryFieldSchema.parse(value))
+    const rawWeekStart = formData.get('weekStart')
+    const weekStart = typeof rawWeekStart === 'string' && rawWeekStart ? WeekStartSchema.safeParse(rawWeekStart) : null
+    if (weekStart && !weekStart.success) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
 
-    const { schoolMenu, week, violations } = await planFullWeek(uploads, history)
+    const taste = await getTasteContext(weekStart?.data)
+    const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text)
     return NextResponse.json({ schoolMenu, week, violations })
   } catch (error) {
     return toErrorResponse(error)

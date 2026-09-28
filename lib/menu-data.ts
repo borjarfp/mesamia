@@ -32,6 +32,8 @@ export const ruleGroups: Array<{ title: string; rules: string[] }> = [
     title: 'Lunes a viernes',
     rules: [
       `Recetas fáciles, de unos ${TARGET_WEEKDAY_MINUTES} min y nunca más de ${MAX_WEEKDAY_MINUTES} min en total.`,
+      'La comida de los adultos se parece a la que come Aina ese día en el cole (mismo tipo de plato).',
+      'La cena se inspira en la "proposta de sopar" del menú de Aina, como sugerencia.',
       'La cena no repite el tipo de proteína ni los ingredientes de lo que Aina e Iria han comido ese día en el cole.',
       'El fin de semana no tiene límite de tiempo ni de dificultad.',
     ],

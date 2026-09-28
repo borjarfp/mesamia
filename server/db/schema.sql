@@ -17,6 +17,7 @@ CREATE TYPE meal_slot AS ENUM ('comida', 'cena');
 CREATE TYPE protein_category AS ENUM ('huevo', 'ave', 'pescado', 'carne_roja', 'legumbre', 'otro');
 CREATE TYPE dish_source_kind AS ENUM ('ia', 'web');
 CREATE TYPE recipe_difficulty AS ENUM ('facil', 'media', 'dificil');
+CREATE TYPE meal_change_kind AS ENUM ('alternativa', 'manual');
 
 -- Una semana confirmada con "Confirmar planificación".
 CREATE TABLE saved_weeks (
@@ -68,7 +69,10 @@ CREATE TABLE recipe_steps (
   PRIMARY KEY (recipe_id, position)
 );
 
--- Qué receta ocupa cada hueco (día + comida/cena) de una semana guardada.
+-- Qué receta ocupa cada hueco (día + comida/cena) de una semana guardada, y si la familia la cambió
+-- antes de confirmar: `proposed_title` es lo que había propuesto la IA y `change_kind` cómo se
+-- sustituyó (una alternativa sugerida, o un plato escrito a mano). Ambos NULL = propuesta aceptada
+-- tal cual. Es lo que usa server/history/taste-context.ts para que la IA aprenda sus gustos.
 -- Borrar una semana borra sus huecos (CASCADE). Además, la app borra en la misma transacción las
 -- recetas que se quedan sin usar (ninguna otra semana las usa), con sus ingredientes y pasos:
 --   DELETE FROM recipes r WHERE NOT EXISTS (SELECT 1 FROM week_meals m WHERE m.recipe_id = r.id);
@@ -78,6 +82,9 @@ CREATE TABLE week_meals (
   day        day_name  NOT NULL,
   meal       meal_slot NOT NULL,
   recipe_id  uuid      NOT NULL REFERENCES recipes (id) ON DELETE RESTRICT,
+  proposed_title text,
+  change_kind    meal_change_kind,
+  CHECK ((proposed_title IS NULL) = (change_kind IS NULL)),
   PRIMARY KEY (week_id, day, meal)
 );
 CREATE INDEX week_meals_recipe_id_idx ON week_meals (recipe_id);

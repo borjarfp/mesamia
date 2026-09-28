@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealSlotSchema, ProteinCategorySchema, type FinalDish } from '../types'
+import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealChangeKindSchema, MealSlotSchema, ProteinCategorySchema, type FinalDish } from '../types'
 
 // Espejo en TypeScript/zod de las tablas de server/db/schema.sql — mismos nombres de tabla y de
 // columna (snake_case), para que pasar del JSON local a una BD real sea cambiar el almacenamiento,
@@ -50,6 +50,9 @@ export const WeekMealRowSchema = z.object({
   day: DayNameSchema,
   meal: MealSlotSchema,
   recipe_id: z.string().uuid(),
+  // .default(null): filas escritas antes de registrar cambios no las traen (= aceptada tal cual).
+  proposed_title: z.string().nullable().default(null),
+  change_kind: MealChangeKindSchema.nullable().default(null),
 })
 export type WeekMealRow = z.infer<typeof WeekMealRowSchema>
 

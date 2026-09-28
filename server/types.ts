@@ -30,6 +30,10 @@ export const SchoolMealEntrySchema = z.object({
   title: z.string().describe('Nombre del plato tal como aparece en el menú escolar'),
   mainIngredients: z.array(z.string()).describe('Ingredientes principales, en minúsculas y sin adjetivos'),
   proteinCategory: ProteinCategorySchema,
+  // "Proposta de sopar" / propuesta de cena que algunos menús escolares (el de Aina) traen para
+  // cada día, pensada para complementar la comida del cole. Tal cual aparece (puede estar en
+  // catalán). La IA la usa como inspiración para la cena de ese día, no es obligatoria.
+  dinnerSuggestion: z.string().optional().describe('La "proposta de sopar" o propuesta de cena de ese día, tal como aparece en el menú; omítelo si el menú no trae ninguna'),
 })
 export type SchoolMealEntry = z.infer<typeof SchoolMealEntrySchema>
 
@@ -163,13 +167,19 @@ export const WeekPlanSchema = z.object({
 })
 export type WeekPlan = z.infer<typeof WeekPlanSchema>
 
-// Resumen de una semana pasada, para dar contexto al Paso 2 sin mandar el JSON completo (Gemini no
-// necesita cada ingrediente de cada semana anterior, solo un resumen de qué tipo de platos gustaron).
-export const HistorySummarySchema = z.object({
-  label: z.string(),
-  highlights: z.array(z.string()).describe('Títulos o notas breves de platos que funcionaron bien esa semana'),
+// Qué cambió la familia en un hueco antes de confirmar la semana: la propuesta original de la IA
+// (`proposedTitle`) y cómo la sustituyó — por una de las alternativas de "Buscar alternativas" o
+// escribiendo su propio plato. Es la señal más valiosa para aprender sus gustos (ver
+// server/history/taste-context.ts); un hueco sin cambio simplemente no aparece aquí.
+export const MealChangeKindSchema = z.enum(['alternativa', 'manual'])
+export type MealChangeKind = z.infer<typeof MealChangeKindSchema>
+export const MealChangeSchema = z.object({
+  day: DayNameSchema,
+  meal: MealSlotSchema,
+  proposedTitle: z.string(),
+  kind: MealChangeKindSchema,
 })
-export type HistorySummary = z.infer<typeof HistorySummarySchema>
+export type MealChange = z.infer<typeof MealChangeSchema>
 
 export const HistoryEntrySchema = z.object({
   id: z.string(),
@@ -177,5 +187,7 @@ export const HistoryEntrySchema = z.object({
   createdAt: z.string(),
   weekStart: z.string().optional().describe('Lunes de la semana planificada, YYYY-MM-DD'),
   week: WeekPlanSchema,
+  // Opcional: las semanas guardadas antes de registrar cambios no lo tienen.
+  changes: z.array(MealChangeSchema).optional(),
 })
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

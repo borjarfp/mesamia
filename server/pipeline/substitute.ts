@@ -28,6 +28,9 @@ export type SubstituteInput = {
   // reglas (límites semanales) se sigue validando igual.
   schoolMenu?: SchoolMenuExtraction
   count?: number
+  // Semanas anteriores en texto para el LLM (server/history/taste-context.ts), para que las
+  // alternativas también vayan hacia los gustos de la familia.
+  tasteContext?: string
 }
 
 export type SubstituteResult = {
@@ -90,7 +93,7 @@ export async function substituteDish(input: SubstituteInput): Promise<Substitute
       model: GEMINI_MODEL_PRO,
       schema: AlternativesDraftSchema,
       systemInstruction: buildSubstitutionSystemInstruction(count),
-      contents: [{ role: 'user', parts: [textPart(buildSubstitutionUserPrompt(day, meal, currentWeek, violations))] }],
+      contents: [{ role: 'user', parts: [textPart(buildSubstitutionUserPrompt(day, meal, currentWeek, violations, input.tasteContext, input.schoolMenu))] }],
       // Más variedad entre las alternativas que en la planificación completa de la semana.
       temperature: 0.6,
     })

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealSlot, type WeekPlan } from '../types'
+import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
 import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDatabase, type RecipeRow, type WeekMealRow } from '../db/tables'
 
 // Interfaz de persistencia del historial — deliberadamente pequeña e independiente de dónde vivan
@@ -11,7 +11,7 @@ import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDataba
 export interface HistoryStore {
   list(): Promise<HistoryEntry[]>
   get(id: string): Promise<HistoryEntry | null>
-  save(label: string, week: WeekPlan, weekStart?: string): Promise<HistoryEntry>
+  save(label: string, week: WeekPlan, weekStart?: string, changes?: MealChange[]): Promise<HistoryEntry>
   remove(id: string): Promise<boolean>
 }
 
@@ -86,7 +86,11 @@ function entryFromRows(db: LocalDatabase, weekId: string): HistoryEntry | null {
     const cena = dishAt(day, 'cena')
     return comida && cena ? [{ day, comida, cena }] : []
   })
-  return { id: week.id, label: week.label, createdAt: week.created_at, ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at } }
+  const changes: MealChange[] = DAY_NAMES.flatMap(day => (['comida', 'cena'] as const).flatMap(meal => {
+    const row = meals.find(item => item.day === day && item.meal === meal)
+    return row?.proposed_title && row.change_kind ? [{ day, meal, proposedTitle: row.proposed_title, kind: row.change_kind }] : []
+  }))
+  return { id: week.id, label: week.label, createdAt: week.created_at, ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at }, changes }
 }
 
 // --- HistoryEntry → filas -----------------------------------------------------------------------
@@ -115,7 +119,7 @@ function createLocalRelationalHistoryStore(): HistoryStore {
     async get(id) {
       return entryFromRows(await load(), id)
     },
-    save(label, week, weekStart) {
+    save(label, week, weekStart, changes = []) {
       return serialized(async () => {
         const db = await load()
         const now = new Date().toISOString()
@@ -123,7 +127,8 @@ function createLocalRelationalHistoryStore(): HistoryStore {
         db.saved_weeks.push({ id: weekId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now })
         for (const day of week.days) {
           for (const meal of ['comida', 'cena'] as const) {
-            const row: WeekMealRow = { week_id: weekId, day: day.day, meal, recipe_id: upsertRecipe(db, day[meal], now) }
+            const change = changes.find(item => item.day === day.day && item.meal === meal)
+            const row: WeekMealRow = { week_id: weekId, day: day.day, meal, recipe_id: upsertRecipe(db, day[meal], now), proposed_title: change?.proposedTitle ?? null, change_kind: change?.kind ?? null }
             db.week_meals.push(row)
           }
         }

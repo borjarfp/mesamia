@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
 import { historyStore } from '@/server/history/store'
-import { WeekPlanSchema } from '@/server/types'
+import { MealChangeSchema, WeekPlanSchema } from '@/server/types'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -23,11 +23,12 @@ const SaveBodySchema = z.object({
   label: z.string().min(1),
   weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   week: WeekPlanSchema,
+  changes: z.array(MealChangeSchema).optional(),
 })
 
 // POST /api/history
 // Confirma/guarda una semana ya generada (equivalente a "Confirmar planificación" en el
-// frontend). Body JSON: { label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan }.
+// frontend). Body JSON: { label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan, changes?: MealChange[] }.
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => {
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
     }
 
-    const entry = await historyStore.save(parsed.data.label, parsed.data.week, parsed.data.weekStart)
+    const entry = await historyStore.save(parsed.data.label, parsed.data.week, parsed.data.weekStart, parsed.data.changes)
     return NextResponse.json({ entry }, { status: 201 })
   } catch (error) {
     return toErrorResponse(error)

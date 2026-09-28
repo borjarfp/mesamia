@@ -13,6 +13,7 @@ export function buildSchoolExtractionSystemInstruction(): string {
     '- mainIngredients: los ingredientes principales (proteína y acompañamiento principal), en minúsculas, sin adjetivos ni cantidades. 2-4 ingredientes basta.',
     `- proteinCategory: una de estas categorías, la que mejor describa la proteína principal del plato: ${PROTEIN_CATEGORIES.join(', ')}. Usa "otro" si no aplica ninguna (p. ej. un plato vegetal sin legumbre, o un postre).`,
     'Si un documento menciona varios platos por día (primero y segundo, o comida y merienda), quédate solo con el plato principal de mediodía.',
+    '- dinnerSuggestion: si el menú trae para ese día una propuesta de cena ("proposta de sopar", "sopar", "propuesta de cena", "per sopar"...), cópiala tal cual (en el idioma original, sin traducir). Si no trae ninguna, omite el campo: no la inventes.',
     'Devuelve exclusivamente el JSON solicitado, sin texto adicional.',
   ].join('\n')
 }

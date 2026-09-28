@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, Check, LoaderCircle, Printer, Search, Sparkles } from 'lucide-react'
-import type { DayName, FinalDayPlan, FinalDish, MealSlot, SchoolMenuExtraction, WeekPlan } from '@/server/types'
+import type { DayName, FinalDayPlan, FinalDish, MealChange, MealSlot, SchoolMenuExtraction, WeekPlan } from '@/server/types'
 import { ApiError, saveHistoryEntry, substituteDish } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +16,19 @@ import { ResponsiveModal } from '@/components/menu/responsive-modal'
 import { sourceStyles } from '@/lib/menu-data'
 
 type Selected = { day: DayName; meal: MealSlot }
+
+// Qué huecos se cambiaron respecto a la propuesta original de la IA (`week.days`, la prop, que no
+// se modifica) — se guarda con la semana para que la IA aprenda de ello en las siguientes (ver
+// server/history/taste-context.ts). Se compara título + URL: cambiar y volver a elegir el mismo
+// plato no cuenta como cambio. Un plato "Manual" es que se escribió a mano; si no, fue una alternativa.
+function diffChanges(proposed: FinalDayPlan[], final: FinalDayPlan[]): MealChange[] {
+  return final.flatMap(day => (['comida', 'cena'] as const).flatMap(meal => {
+    const before = proposed.find(item => item.day === day.day)?.[meal]
+    const after = day[meal]
+    if (!before || (before.title === after.title && before.sourceUrl === after.sourceUrl)) return []
+    return [{ day: day.day, meal, proposedTitle: before.title, kind: after.sourceName === 'Manual' ? 'manual' as const : 'alternativa' as const }]
+  }))
+}
 
 // Vista completa de una semana ya generada/guardada: tarjetas de día + exportar (+ drawer
 // de sustitución y confirmación si `editable`, ambos contra la API real). La usa tanto el
@@ -79,7 +92,7 @@ export function WeekView({
     setAlternatives([])
     setSubstituteError(null)
     setSubstituting(true)
-    substituteDish({ ...selected, currentWeek: { days, generatedAt: week.generatedAt }, schoolMenu })
+    substituteDish({ ...selected, currentWeek: { days, generatedAt: week.generatedAt }, schoolMenu, weekStart })
       .then(result => { if (id === searchId.current) setAlternatives(result.alternatives) })
       .catch(error => { if (id === searchId.current) setSubstituteError(error instanceof ApiError ? error.message : 'No se han podido buscar alternativas.') })
       .finally(() => { if (id === searchId.current) setSubstituting(false) })
@@ -101,7 +114,7 @@ export function WeekView({
     setSaving(true)
     setSaveError(null)
     try {
-      await saveHistoryEntry(weekLabel, { days, generatedAt: week.generatedAt }, weekStart)
+      await saveHistoryEntry(weekLabel, { days, generatedAt: week.generatedAt }, weekStart, diffChanges(week.days, days))
       setConfirmOpen(false)
       router.push('/guardados')
     } catch (error) {

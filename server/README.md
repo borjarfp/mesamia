@@ -99,7 +99,7 @@ repetir el OCR.
 ```bash
 curl -X POST http://localhost:3000/api/menus/generate \
   -H "Content-Type: application/json" \
-  -d '{"schoolMenu": { "children": [...] }, "history": [{"label":"Semana pasada","highlights":["Lentejas con chorizo"]}] }'
+  -d '{"schoolMenu": { "children": [...] }, "weekStart": "2026-10-12" }'
 ```
 
 Respuesta: `{ week: WeekPlan, violations: RuleViolation[] }`. `violations` vacío = la propuesta
@@ -108,13 +108,13 @@ cumple todo; si no, es la mejor propuesta tras 3 intentos, con el detalle de qu�
 ### `POST /api/menus/plan` — pipeline completo (1→4) de una vez
 
 El equivalente directo del botón único "Generar menú semanal inteligente" del frontend.
-`multipart/form-data` igual que `/extract`, más un campo de texto opcional `history` con el JSON
-de `HistorySummary[]`.
+`multipart/form-data` igual que `/extract`, más un campo de texto opcional `weekStart`
+(YYYY-MM-DD, el lunes de la semana a planificar).
 
 ```bash
 curl -X POST http://localhost:3000/api/menus/plan \
   -F "Aina=@menu-aina.pdf" -F "Iria=@menu-iria.pdf" \
-  -F 'history=[{"label":"Semana pasada","highlights":["Lentejas con chorizo"]}]'
+  -F "weekStart=2026-10-12"
 ```
 
 Respuesta: `{ schoolMenu, week, violations }`.
@@ -138,9 +138,11 @@ Respuesta: `{ alternatives: FinalDish[], violations: RuleViolation[] }`.
 ### Historial
 
 - `GET /api/history` → `{ entries: HistoryEntry[] }`, más reciente primero.
-- `POST /api/history` con `{ label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan }` → `{ entry: HistoryEntry }` (201).
+- `POST /api/history` con `{ label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan, changes?: MealChange[] }` → `{ entry: HistoryEntry }` (201).
   Es lo que dispara "Confirmar planificación" en el frontend, una vez conectado.
 - `GET /api/history/[id]` → `{ entry: HistoryEntry }` o 404.
+- `GET /api/history/context?weekStart=YYYY-MM-DD` → `{ weeks, text, instructions }`: exactamente lo
+  que verá el LLM de las 3 semanas anteriores al planificar esa semana (ver "Historial de gustos").
 - `DELETE /api/history/[id]` → 204 o 404. Borra también las recetas que ya no usa ninguna otra semana.
 
 **Persistencia**: Modelo relacional en `server/db/schema.sql` (DDL de PostgreSQL, hoy no se ejecuta en ningún
@@ -170,6 +172,29 @@ se conservaban siempre en el catálogo; cambió a petición ("no quiero tener es
 escrituras en cola dentro del proceso. Si el JSON está corrupto, falla en vez de tratarlo como
 vacío, para que el siguiente guardado no borre el histórico. **Para pasar a una BD real**: ejecutar
 `schema.sql` e implementar `HistoryStore` con SQL; las rutas y el frontend no cambian.
+
+## Menú escolar como contexto (`server/prompts/schoolContext.ts`)
+
+El Paso 1 extrae, además de la comida de cada día, la "proposta de sopar" si el menú la trae
+(`dinnerSuggestion`, opcional). Planificación y sustitución reciben el menú escolar en texto por
+día (`formatSchoolDay`), con estas instrucciones (`SCHOOL_CONTEXT_LINES`):
+- la comida de los adultos de L-V se parece a la de Aina (`REFERENCE_CHILD`);
+- la cena se inspira en su proposta de sopar;
+- la cena no repite la proteína ni los ingredientes del cole. Esta última es obligatoria y la valida
+  también el motor de reglas.
+
+## Historial de gustos (`server/history/taste-context.ts`)
+
+`/generate`, `/plan` y `/substitute` aceptan `weekStart`. Con él, **el servidor añade solo al
+prompt** las 3 semanas guardadas anteriores a esa (`selectPreviousWeeks`: estrictamente anteriores,
+la última versión si una semana se guardó dos veces). Sin `weekStart` usa las 3 más recientes. Van
+en texto pensado para un LLM (`formatWeekForLlm`), una línea por plato, que dice si se aceptó tal
+cual, se CAMBIÓ por una alternativa o se ESCRIBIÓ A MANO, junto con lo que había propuesto la IA.
+`TASTE_CONTEXT_INSTRUCTIONS` le explica cómo pesar cada señal. Se construye en el momento desde el
+`HistoryStore`, así que no hay un fichero aparte que se desincronice.
+
+Los cambios los registra el frontend al confirmar (`MealChange[]`: propuesta original frente a
+plato final) y se guardan en `week_meals.proposed_title`/`change_kind`.
 
 ## Motor de reglas (`server/rules/`)
 
