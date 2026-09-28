@@ -7,10 +7,13 @@ import type { HistoryStore } from './store'
 // Implementación de HistoryStore sobre Postgres (Supabase), con las tablas de server/db/schema.sql.
 // Se conecta con DATABASE_URL (pooler transaccional de Supabase, puerto 6543). El pool es un
 // singleton por proceso; `max` bajo porque en serverless cada instancia abre el suyo.
+// DATABASE_URL (la nuestra) o POSTGRES_URL (la que inyecta la integración Supabase↔Vercel).
+export const databaseUrl = () => process.env.DATABASE_URL || process.env.POSTGRES_URL
+
 let pool: Pool | undefined
 function getPool(): Pool {
-  // Se quita `sslmode` de la URL: pg lo interpreta como verify-full y el certificado del pooler de Supabase no encadena.
-  pool ??= new Pool({ connectionString: process.env.DATABASE_URL!.replace(/[?&]sslmode=[^&]*/, ''), ssl: { rejectUnauthorized: false }, max: 3 })
+  // Se quita la query de la URL (sslmode, supa, pgbouncer…): pg interpreta sslmode como verify-full y el certificado del pooler de Supabase no encadena; el SSL se fija abajo.
+  pool ??= new Pool({ connectionString: databaseUrl()!.split('?')[0], ssl: { rejectUnauthorized: false }, max: 3 })
   return pool
 }
 

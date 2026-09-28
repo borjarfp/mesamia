@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ConfigError } from '../errors'
 import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
-import { createPostgresHistoryStore } from './postgres-store'
+import { createPostgresHistoryStore, databaseUrl } from './postgres-store'
 import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDatabase, type RecipeRow, type WeekMealRow } from '../db/tables'
 
 // Interfaz de persistencia del historial — deliberadamente pequeña e independiente de dónde vivan
@@ -159,5 +160,15 @@ function createLocalRelationalHistoryStore(): HistoryStore {
 
 // Instancia única compartida por todas las rutas (module-level singleton, como el resto de
 // clientes de server/clients/*).
-// Con DATABASE_URL (Supabase) se usa Postgres; sin ella, el JSON local.
-export const historyStore: HistoryStore = process.env.DATABASE_URL ? createPostgresHistoryStore() : createLocalRelationalHistoryStore()
+// Con DATABASE_URL/POSTGRES_URL (Supabase) se usa Postgres; sin ella, el JSON local. En Vercel el
+// JSON es efímero (se pierde entre instancias), así que ahí falta de URL es un error de configuración.
+function createHistoryStore(): HistoryStore {
+  if (databaseUrl()) return createPostgresHistoryStore()
+  if (process.env.VERCEL) {
+    // Falla al usarlo, no al importar el módulo: si no, `next build` se rompería sin variables.
+    const fail = () => Promise.reject(new ConfigError('Falta DATABASE_URL (o POSTGRES_URL) en las variables de entorno de Vercel: sin ella el historial no se puede guardar.'))
+    return { list: fail, get: fail, save: fail, remove: fail }
+  }
+  return createLocalRelationalHistoryStore()
+}
+export const historyStore: HistoryStore = createHistoryStore()
