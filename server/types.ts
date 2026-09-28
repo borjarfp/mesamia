@@ -108,10 +108,11 @@ export const ConsolidatedRecipeSchema = z.object({
 })
 export type ConsolidatedRecipe = z.infer<typeof ConsolidatedRecipeSchema>
 
-// Paso 4 real: elegir la mejor receta para un plato entre las candidatas web (numeradas "1".."3") y
+// Paso 4 real: elegir la mejor receta para un plato entre las candidatas web (numeradas "1".."4":
+// hasta 3 de la búsqueda general + 1 de Cookidoo, ver server/pipeline/step3-fetch-recipes.ts) y
 // la propia de Gemini ("ia"), y devolverla ya estandarizada. `choice` y `reason` van primero para
 // que Gemini decida antes de escribir la receta (genera las propiedades en este orden).
-export const RECIPE_CHOICES = ['ia', '1', '2', '3'] as const
+export const RECIPE_CHOICES = ['ia', '1', '2', '3', '4'] as const
 export const RecipeSelectionSchema = z.object({
   choice: z.enum(RECIPE_CHOICES).describe('"ia" para tu propia receta, o el número de la receta web candidata elegida'),
   reason: z.string().describe('Una frase: por qué esta opción es la mejor'),

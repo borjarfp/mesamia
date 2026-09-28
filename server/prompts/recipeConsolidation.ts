@@ -11,7 +11,8 @@ import { FAMILY_RESTRICTION_LINES } from './weekPlanning'
 export function buildRecipeSelectionSystemInstruction(): string {
   return [
     'Eres quien elige la receta definitiva de cada plato de un menú semanal familiar.',
-    'Recibes el plato planificado y entre 0 y 3 recetas web candidatas (contenido bruto de la página). Las opciones son: una de esas candidatas, o "ia" = escribir tú tu propia receta de ese plato.',
+    'Recibes el plato planificado y entre 0 y 4 recetas web candidatas (contenido bruto de la página). Las opciones son: una de esas candidatas, o "ia" = escribir tú tu propia receta de ese plato.',
+    'Las candidatas de Cookidoo son recetas para Thermomix. En esta casa HAY Thermomix y suscripción a Cookidoo, así que son igual de válidas que las demás. Su página pública no muestra los pasos (la familia los ve en su cuenta): NO las descartes ni las penalices por eso.',
     'Una candidata web solo es válida si:',
     '- Es de verdad el plato planificado, o uno equivalente con la misma proteína principal y el mismo estilo. Una receta distinta que solo comparte alguna palabra NO es válida.',
     '- Cumple todas estas restricciones de la familia (revisa la lista completa de ingredientes de la página):',
@@ -24,7 +25,7 @@ export function buildRecipeSelectionSystemInstruction(): string {
     '- title: título corto del plato (sin el nombre del sitio web ni texto de relleno).',
     '- description: una sola frase que resuma el plato de forma atractiva.',
     '- ingredients: la lista COMPLETA de ingredientes, en minúsculas y sin cantidades (se usa para comprobar ingredientes no permitidos, no omitas ninguno).',
-    '- steps: de 3 a 6 pasos breves (una frase cada uno) de cómo se hace, en orden. Si es web, resume fielmente los pasos de la página; si es "ia", los de tu receta.',
+    '- steps: de 3 a 6 pasos breves (una frase cada uno) de cómo se hace, en orden. Si es web, resume fielmente los pasos de la página; si es "ia", los de tu receta. Si eliges una de Cookidoo (sin pasos en la página), devuelve steps vacío: no te inventes los pasos de una receta de Thermomix.',
     '- totalTimeMinutes: tiempo total en minutos (el que indique la página si es web; si no lo indica, estímalo de forma realista).',
     '- difficulty: facil, media o dificil (ídem).',
     'Devuelve exclusivamente el JSON solicitado.',

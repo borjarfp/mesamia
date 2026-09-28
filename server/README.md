@@ -34,7 +34,8 @@ cuenta tiene acceso a un Pro real, fijarlo por variable de entorno (ver `server/
 Paso 1 (Gemini)          Paso 2 (Gemini)              Paso 3 (Tavily)         Paso 4 (Gemini)
 extractSchoolMenu   →    planWeek (+ reglas +    →    fetchRecipes       →    selectRecipes
                          reintento si incumple)        (concurrente, hasta     (elige la mejor:
-                                                        3 candidatas/plato)     web o propia de IA)
+                                                        3 candidatas/plato      web o propia de IA)
+                                                        + 1 de Cookidoo)
                                                                                      ↓
                                                                             assembleWeek (JSON final)
 ```

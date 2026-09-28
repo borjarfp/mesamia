@@ -124,3 +124,51 @@ export async function searchRecipeCandidates(dishTitle: string, max = MAX_RECIPE
   const rest = hits.filter(hit => !firstPerSource.includes(hit))
   return [...firstPerSource, ...rest].slice(0, max)
 }
+
+// --- Cookidoo -------------------------------------------------------------------------------------
+//
+// En la búsqueda general (los 5 sitios a la vez) Cookidoo casi nunca entra entre los primeros
+// resultados, y cuando entra suele venir sin contenido (comprobado con 5 platos típicos: 0 de 5).
+// La familia tiene Thermomix y suscripción, así que se busca aparte (opción B acordada con el
+// usuario, pensada para gastar pocos créditos de Tavily):
+//   1. una búsqueda `basic` solo en cookidoo.es por plato (1 crédito, sin contenido: solo la URL);
+//   2. UNA llamada a `extract` con todas esas URLs a la vez (1 crédito por cada 5 páginas).
+// Unos +17 créditos por semana generada (sobre ~28). Ojo: las páginas públicas de Cookidoo traen
+// ingredientes, tiempo y dificultad, pero NO los pasos (son solo para suscriptores).
+
+// Primera URL de una receta de Cookidoo para el plato, o null. Sin contenido: se descarga luego en
+// bloque con extractPages().
+export async function searchCookidooRecipeUrl(dishTitle: string): Promise<string | null> {
+  const client = getClient()
+  let response
+  try {
+    response = await callWithRetry(() => client.search(`receta ${dishTitle}`, { includeDomains: ['cookidoo.es'], searchDepth: 'basic', maxResults: 5 }))
+  } catch (cause) {
+    throw new UpstreamApiError('tavily', `La búsqueda en Cookidoo ha fallado para "${dishTitle}"`, cause)
+  }
+  return response.results.map(result => result.url).find(url => matchAllowedSource(url) === 'Cookidoo') ?? null
+}
+
+// Tavily admite hasta 20 URLs por llamada a extract.
+const MAX_EXTRACT_URLS = 20
+
+// Descarga el texto de varias páginas con el mínimo de llamadas (una por cada 20 URLs). Devuelve
+// solo las que se pudieron leer y traen contenido suficiente; las que fallan simplemente no están.
+export async function extractPages(urls: string[]): Promise<Map<string, string>> {
+  const client = getClient()
+  const unique = [...new Set(urls)]
+  const pages = new Map<string, string>()
+  for (let start = 0; start < unique.length; start += MAX_EXTRACT_URLS) {
+    const batch = unique.slice(start, start + MAX_EXTRACT_URLS)
+    let response
+    try {
+      response = await callWithRetry(() => client.extract(batch, { extractDepth: 'basic', format: 'text' }))
+    } catch (cause) {
+      throw new UpstreamApiError('tavily', 'No se han podido descargar las páginas de receta', cause)
+    }
+    for (const result of response.results) {
+      if (result.rawContent && result.rawContent.length >= MIN_CANDIDATE_CHARS) pages.set(result.url, result.rawContent)
+    }
+  }
+  return pages
+}

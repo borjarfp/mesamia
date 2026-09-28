@@ -334,10 +334,11 @@ ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de ni
    (`server/clients/tavily.ts`, `ALLOWED_SOURCES`). `searchRecipeCandidates` devuelve **hasta 3
    candidatas**, de sitios distintos siempre que puede. Solo acepta páginas de UNA receta
    (`recipePath` por sitio: sin `cookpad.com/es/buscar/...` ni páginas de categoría) con al menos
-   `MIN_CANDIDATE_CHARS` (800) de contenido. Aquí no se elige ninguna.
+   `MIN_CANDIDATE_CHARS` (800) de contenido. **Además, una búsqueda aparte solo en Cookidoo**
+   (ver "Cookidoo" abajo), que añade una 4ª candidata. Aquí no se elige ninguna.
 4. **Elección** (`step4-consolidate.ts` → `selectRecipes`, Gemini Flash; es una llamada por plato,
    como antes) — Gemini compara las candidatas con **su propia receta** del plato y se queda con la
-   mejor (`RecipeSelectionSchema`: `choice` `'ia' | '1' | '2' | '3'` + `reason` + la receta
+   mejor (`RecipeSelectionSchema`: `choice` `'ia' | '1'…'4'` + `reason` + la receta
    estandarizada). Una candidata solo vale si es de verdad el plato planificado y cumple las
    restricciones. Si elige `'ia'`, escribe una receta completa con todos sus ingredientes, tiempo
    y dificultad. Sin candidatas elige `'ia'`; nunca se inventa una fuente web (un `choice` que no
@@ -370,6 +371,40 @@ menú escolar — `DishSourceKindSchema` ni siquiera admite un valor `'escolar'`
 y `FinalDish` no lleva ya un campo `child`. Una versión anterior de este documento describía lo
 contrario (el pipeline solo planificaba 9 huecos y colocaba el menú escolar real en la comida
 L-V) — quedó descartado por completo, ver "Reglas dietéticas y la comida de lunes a viernes" arriba.
+
+### Cookidoo: búsqueda aparte (opción B, elegida por el usuario por coste de Tavily)
+
+Antes casi nunca salía Cookidoo, y no era un fallo. Se investigó con 5 platos típicos:
+- En la búsqueda general (los 5 sitios a la vez), Cookidoo no entró ni una vez entre los 8
+  primeros resultados.
+- Cuando entra, más de la mitad de sus resultados vienen con ~160 caracteres, así que el filtro
+  de 800 las descarta.
+- Sus páginas públicas traen ingredientes, tiempo y dificultad, pero **no los pasos**: son solo
+  para suscriptores. Todas son recetas de Thermomix.
+
+**La familia tiene Thermomix y suscripción**, así que ahora, por cada plato y en paralelo con la
+búsqueda general, se hace esto:
+1. `searchCookidooRecipeUrl`: una búsqueda `basic` solo en `cookidoo.es`, 1 crédito, solo para
+   sacar la URL de la primera receta.
+2. `extractPages`: UNA llamada a `extract` (`basic`, `format: 'text'`) con todas esas URLs de la
+   semana a la vez (1 crédito por cada 5 páginas; hasta 20 URLs por llamada).
+
+La receta se añade como candidata extra, salvo que la general ya trajera una de Cookidoo. El
+prompt del Paso 4 dice que hay Thermomix + suscripción y que no se penalice que falten los pasos.
+Si elige Cookidoo, `selectRecipes` **vacía `steps`** (serían inventados), y "Ver receta" muestra
+"Ver los pasos en Cookidoo (con tu suscripción)" enlazando a la receta. Ese enlace aparece en
+cualquier receta web sin pasos, no solo en Cookidoo.
+
+**Coste**: ~28 → ~45 créditos de Tavily por semana generada (+14 búsquedas `basic` + ~3 de
+extract), y ~6 → ~10 por "Buscar alternativas". Las opciones descartadas fueron: A, búsqueda de
+Cookidoo en `advanced` (~59 créditos); y C, pasar también la búsqueda general a `basic` (~31
+créditos, pero con riesgo de empeorar las recetas de las otras webs, sin probar).
+
+**Resultado real**: con 6 platos clásicos (crema de calabaza, merluza en salsa verde, tortilla,
+curry, lentejas, salmón), Cookidoo llegó como candidata en los 6 y ganó en 5. En una semana
+completa ganó solo en 1 de 14, porque Gemini planifica platos más elaborados ("Crema de calabacín
+con picatostes", "Hummus con crudités") y la búsqueda de Cookidoo encuentra otro plato o ninguno.
+Es lo esperado, no un fallo.
 
 ### Restricciones de la familia (`server/rules/restrictions.ts`)
 

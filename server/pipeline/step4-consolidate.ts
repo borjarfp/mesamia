@@ -43,11 +43,14 @@ export async function selectRecipes(lookups: RecipeLookup[]): Promise<Map<string
         return null
       }
       const { choice, reason: _reason, ...recipe } = selection
+      // Cookidoo no publica los pasos: aunque Gemini los rellenara, serían inventados. Se vacían y
+      // el frontend enlaza a la receta en Cookidoo para verlos (day-card.tsx).
       // "ia", o un número de candidata que no existe (Gemini eligió "3" con solo 2 candidatas): se
       // trata como receta propia, nunca como una fuente web inventada.
       const candidate = choice === 'ia' ? undefined : lookup.candidates[Number(choice) - 1]
       if (checkDishRestrictions({ day, meal, proteinCategory, ...recipe }).length > 0) return null
-      const value: SelectedRecipe = { ...recipe, source: candidate ? { kind: 'web', url: candidate.url, name: candidate.sourceName } : { kind: 'ia' } }
+      const steps = candidate?.sourceName === 'Cookidoo' ? [] : recipe.steps
+      const value: SelectedRecipe = { ...recipe, steps, source: candidate ? { kind: 'web', url: candidate.url, name: candidate.sourceName } : { kind: 'ia' } }
       return [lookup.key, value] as const
     }),
   )
