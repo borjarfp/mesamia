@@ -1,0 +1,113 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { AlertCircle, Check, LoaderCircle, Printer, Sparkles } from 'lucide-react'
+import type { DayName, FinalDayPlan, FinalDish, MealSlot, SchoolMenuExtraction, WeekPlan } from '@/server/types'
+import { ApiError, saveHistoryEntry, substituteDish } from '@/lib/api'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
+import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
+import { DayCard } from '@/components/menu/day-card'
+import { PrintMenu } from '@/components/menu/print-menu'
+import { sourceStyles } from '@/lib/menu-data'
+
+type Selected = { day: DayName; meal: MealSlot }
+
+// Vista completa de una semana ya generada/guardada: tarjetas de día + exportar (+ drawer
+// de sustitución y confirmación si `editable`, ambos contra la API real). La usa tanto el
+// planificador (semana actual, editable) como /semana/[slug] (guardadas: `editable={false}`,
+// histórico de solo consulta).
+export function WeekView({
+  week,
+  weekLabel,
+  weekStart,
+  schoolMenu,
+  dateLabels,
+  title = 'Tu menú semanal',
+  subtitle = 'Guárdalo o imprímelo para tenerlo siempre a mano.',
+  editable = true,
+  badgeLabel = 'Listo para ti',
+}: {
+  week: WeekPlan
+  weekLabel: string
+  weekStart?: string
+  schoolMenu?: SchoolMenuExtraction
+  dateLabels?: Partial<Record<DayName, string>>
+  title?: string
+  subtitle?: string
+  editable?: boolean
+  badgeLabel?: string
+}) {
+  const router = useRouter()
+  const [days, setDays] = useState<FinalDayPlan[]>(week.days)
+  const [selected, setSelected] = useState<Selected | null>(null)
+  const [alternatives, setAlternatives] = useState<FinalDish[]>([])
+  const [substituting, setSubstituting] = useState(false)
+  const [substituteError, setSubstituteError] = useState<string | null>(null)
+  const [customTitle, setCustomTitle] = useState('')
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const selectedDish = useMemo(() => {
+    if (!selected) return null
+    const day = days.find(item => item.day === selected.day)
+    return day ? day[selected.meal] : null
+  }, [days, selected])
+
+  const handlePrint = () => window.print()
+
+  const openMeal = (day: DayName, meal: MealSlot) => {
+    setSelected({ day, meal })
+    setCustomTitle('')
+    setAlternatives([])
+    setSubstituteError(null)
+    setSubstituting(true)
+    substituteDish({ day, meal, currentWeek: { days, generatedAt: week.generatedAt }, schoolMenu })
+      .then(result => setAlternatives(result.alternatives))
+      .catch(error => setSubstituteError(error instanceof ApiError ? error.message : 'No se han podido buscar alternativas.'))
+      .finally(() => setSubstituting(false))
+  }
+  const closeDrawer = () => { setSelected(null); setCustomTitle(''); setAlternatives([]); setSubstituteError(null) }
+
+  const replace = (dish: FinalDish) => {
+    if (!selected) return
+    setDays(current => current.map(item => item.day === selected.day ? { ...item, [selected.meal]: dish } : item))
+    closeDrawer()
+  }
+  const submitCustom = () => {
+    const trimmed = customTitle.trim()
+    if (!trimmed) return
+    replace({ title: trimmed, description: '', ingredients: [], proteinCategory: 'otro', sourceKind: 'ia', sourceName: 'Manual' })
+  }
+
+  const confirmPlanning = async () => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await saveHistoryEntry(weekLabel, { days, generatedAt: week.generatedAt }, weekStart)
+      setConfirmOpen(false)
+      router.push('/guardados')
+    } catch (error) {
+      setSaveError(error instanceof ApiError ? error.message : 'No se ha podido guardar la semana.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><h2 className="text-lg font-semibold">{title}</h2><p className="mt-1 text-xs text-slate-500">{subtitle}</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="hidden border-emerald-200 text-emerald-700 sm:inline-flex">{badgeLabel}</Badge><Button variant="outline" size="sm" onClick={handlePrint} className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50"><Printer data-icon="inline-start" />Exportar PDF / imprimir</Button>{editable && <Button size="sm" onClick={() => setConfirmOpen(true)} className="gap-2 bg-emerald-600 hover:bg-emerald-700"><Check data-icon="inline-start" />Confirmar planificación</Button>}</div></div>
+    <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3 print:hidden">{days.map(item => <DayCard key={item.day} item={item} dateLabel={dateLabels?.[item.day]} onChange={editable ? (meal) => openMeal(item.day, meal) : undefined} />)}</div>
+    <PrintMenu days={days} weekLabel={weekLabel} dateLabels={dateLabels} />
+    {editable && <Drawer open={!!selected} onOpenChange={open => !open && closeDrawer()}><DrawerContent><div className="mx-auto w-full max-w-2xl"><DrawerHeader className="text-left"><DrawerTitle>Cambia este plato</DrawerTitle><DrawerDescription>Alternativas equilibradas para {selectedDish?.title ?? 'tu menú'}</DrawerDescription></DrawerHeader><div className="flex flex-col gap-3 px-4">
+      {substituting && <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-4 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin text-emerald-600" />Buscando alternativas equilibradas y recetas reales...</div>}
+      {substituteError && <Alert className="border-red-100 bg-red-50 text-red-800"><AlertCircle className="size-4" /><AlertDescription>{substituteError}</AlertDescription></Alert>}
+      {!substituting && alternatives.map(alt => <button key={alt.title} onClick={() => replace(alt)} className="flex items-center gap-3 rounded-xl border border-slate-100 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50"><div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><Sparkles className="size-4" /></div><div className="min-w-0 flex-1"><p className="font-medium">{alt.title}</p></div><Badge className={sourceStyles[alt.sourceName] ?? ''} variant="outline">{alt.sourceName}</Badge></button>)}
+      <Separator className="my-1" /><form onSubmit={event => { event.preventDefault(); submitCustom() }} className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-200 p-4"><p className="text-sm font-medium">O escribe tu propio plato</p><div className="flex gap-2"><Input value={customTitle} onChange={event => setCustomTitle(event.target.value)} placeholder="Ej. Sobras de ayer" className="flex-1" /><Button type="submit" disabled={!customTitle.trim()} className="shrink-0 bg-emerald-600 hover:bg-emerald-700">Guardar</Button></div></form></div><DrawerFooter><DrawerClose render={<Button variant="outline">Cancelar</Button>} /></DrawerFooter></div></DrawerContent></Drawer>}
+    {editable && <Drawer open={confirmOpen} onOpenChange={open => !saving && setConfirmOpen(open)}><DrawerContent><div className="mx-auto w-full max-w-2xl"><DrawerHeader className="text-left"><DrawerTitle>¿Confirmar esta planificación?</DrawerTitle><DrawerDescription>Guardaremos "{weekLabel}" en tu historial de Guardados. Antes de continuar, puedes imprimir el menú semanal.</DrawerDescription></DrawerHeader><div className="flex flex-col gap-3 px-4">{saveError && <Alert className="border-red-100 bg-red-50 text-red-800"><AlertCircle className="size-4" /><AlertDescription>{saveError}</AlertDescription></Alert>}<Button variant="outline" onClick={handlePrint} className="w-full gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50"><Printer data-icon="inline-start" />Imprimir menú semanal</Button></div><DrawerFooter className="gap-2"><Button onClick={confirmPlanning} disabled={saving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">{saving ? <><LoaderCircle className="size-4 animate-spin" />Guardando...</> : 'Confirmar y guardar'}</Button><DrawerClose render={<Button variant="outline" disabled={saving}>Cancelar</Button>} /></DrawerFooter></div></DrawerContent></Drawer>}
+  </>
+}

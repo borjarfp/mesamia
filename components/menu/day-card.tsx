@@ -1,0 +1,20 @@
+'use client'
+
+import { Clock, ExternalLink } from 'lucide-react'
+import type { Difficulty, FinalDayPlan, FinalDish, MealSlot } from '@/server/types'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { hasExternalLink, sourceStyles } from '@/lib/menu-data'
+import { dayLabel } from '@/lib/week-dates'
+
+// `onChange` es opcional: sin él (semanas guardadas, de solo lectura) no se pinta el botón
+// "Cambiar" en ningún plato — no solo se deshabilita, directamente no existe la posibilidad.
+export function DayCard({ item, dateLabel, onChange }: { item: FinalDayPlan; dateLabel?: string; onChange?: (meal: MealSlot) => void }) { return <Card className="border-slate-100 shadow-none"><CardHeader className="space-y-0 p-4 pb-2"><CardTitle className="text-base">{dayLabel(item.day)}</CardTitle>{dateLabel && <p className="text-xs text-slate-400">{dateLabel}</p>}</CardHeader><CardContent className="flex flex-col gap-2 p-4 pt-2"><Meal label="Comida" data={item.comida} onChange={onChange && (() => onChange('comida'))} /><Meal label="Cena" data={item.cena} onChange={onChange && (() => onChange('cena'))} /></CardContent></Card> }
+
+const DIFFICULTY_LABELS: Record<Difficulty, string> = { facil: 'Fácil', media: 'Media', dificil: 'Difícil' }
+
+function Meal({ label, data, onChange }: { label: string; data: FinalDish; onChange?: () => void }) {
+  const badge = <Badge variant="outline" className={`mt-2 gap-1 text-[11px] ${sourceStyles[data.sourceName] ?? ''}`}>{data.sourceName}{hasExternalLink(data.sourceName) && <ExternalLink className="size-3" />}</Badge>
+  return <div className="rounded-xl bg-slate-50 p-3"><div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</span>{onChange && <Button variant="ghost" size="sm" onClick={onChange} className="h-7 px-2 text-xs text-emerald-700">Cambiar</Button>}</div><p className="text-sm font-semibold">{data.title}</p>{!!(data.totalTimeMinutes || data.difficulty) && <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock className="size-3" />{[data.totalTimeMinutes && `${data.totalTimeMinutes} min`, data.difficulty && DIFFICULTY_LABELS[data.difficulty]].filter(Boolean).join(' · ')}</p>}{data.sourceKind === 'web' && data.sourceUrl ? <a href={data.sourceUrl} target="_blank" rel="noreferrer" className="inline-block hover:opacity-80">{badge}</a> : badge}</div>
+}

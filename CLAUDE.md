@@ -1,0 +1,577 @@
+# MesaMía — Contexto del proyecto
+
+Prototipo web de **planificador de menús semanales familiares**. Una familia sube los PDF/imágenes
+del menú del cole o guardería de sus hijas (Aina e Iria) y la app propone comidas y cenas para los
+7 días de la semana, equilibradas y sin repetir lo que ya comen en el colegio.
+
+Estado actual: **la app funciona de verdad, de punta a punta**. El frontend (`app/planificador`,
+`app/guardados`, `app/semana/[slug]`) llama al backend real (`server/` + `app/api/**`, ver sección
+"Backend"), que llama de verdad a Gemini y Tavily. No hay ya ningún `setTimeout` simulando una
+generación ni datos mock de una semana fija — se probó el circuito completo con claves reales:
+subir/generar → sustituir un plato → confirmar y guardar → verlo en Guardados → abrir esa semana
+guardada de solo lectura. Sigue siendo un prototipo de un único hogar sin autenticación ni base de
+datos persistente de verdad — ver "Qué falta si esto pasa a producción" al final.
+
+## Stack
+
+| Pieza | Elección |
+|---|---|
+| Framework | Next.js 16.3.3, App Router |
+| React | 19 |
+| Lenguaje | TypeScript 5.7 (`strict: true`) |
+| Estilos | Tailwind CSS v4 (vía `@tailwindcss/postcss`, sin `tailwind.config`) |
+| Componentes | shadcn estilo `base-nova`, sobre **`@base-ui/react`** (no Radix) |
+| Iconos | `lucide-react` |
+| Analítica | `@vercel/analytics` (solo en producción) |
+| Backend / IA | `@google/genai` (Gemini) + `@tavily/core` (búsqueda de recetas) + `zod` (esquemas/validación) — ver sección "Backend" |
+| Gestor de paquetes | **pnpm** (`packageManager: pnpm@12.3.4`) |
+| Origen | Generado con **v0.app** (ver `.gitignore` y `metadata.generator`) |
+
+Scripts: `pnpm dev`, `pnpm build`, `pnpm start`. No hay tests, ni linter, ni CI configurados.
+
+**El proyecto no es un repositorio git.** No hay `.git`, así que no hay historial ni ramas.
+
+## Estructura
+
+```
+app/
+  layout.tsx           Root layout. lang="es", metadata, favicon, Analytics en prod.
+  planificador/
+    page.tsx           Semana actual: subir menús por niña, generar (POST /api/menus/plan o
+                       /generate), editar platos. Client component.
+  guardados/
+    page.tsx           Historial real (GET /api/history), cada uno con su "Ver". Client component.
+  semana/[slug]/
+    page.tsx           Vista de solo lectura de UNA semana guardada. Server component que lee
+                       server/history/store.ts DIRECTAMENTE (mismo proceso, sin auto-llamarse por
+                       HTTP) — slug es el id real del HistoryEntry, ya no hay
+                       generateStaticParams (las semanas se crean en tiempo de ejecución).
+  globals.css          Tokens shadcn (oklch) y un bloque @media print importante. Sin modo
+                       oscuro — ver "Sin modo oscuro" más abajo antes de tocar esto.
+components/ui/         9 primitivas shadcn: alert, badge, button, card, collapsible, drawer,
+                       input, separator, tabs (tabs.tsx ya no se usa, ver "Rutas" abajo).
+components/menu/       UI compartida entre las tres rutas anteriores:
+  page-shell.tsx        El fondo gris + "tarjeta" blanca + layout en columna de cada página.
+  app-header.tsx         Logo + título (ya sin botón "+", se quitó a petición).
+  tab-nav.tsx            Los dos enlaces Planificador/Guardados (ver "Rutas" abajo).
+  week-view.tsx          Tarjetas de día + exportar + Drawer de sustitución (real,
+                        POST /api/menus/substitute) + confirmar y guardar (real, POST /api/history).
+  day-card.tsx           DayCard + Meal — consumen FinalDayPlan/FinalDish de @/server/types
+                        directamente (import type, sin coste en runtime), no un tipo propio.
+  print-menu.tsx         Versión para @media print.
+  rules-panel.tsx        Todas las reglas del menú, abiertas por defecto y ocultables.
+lib/api.ts             Cliente HTTP del frontend hacia app/api/**: una función por endpoint,
+                       maneja el parseo de errores ({error:{code,message}} → ApiError) en un sitio.
+lib/menu-data.ts       Ya NO es mock data de una semana: solo sourceStyles/hasExternalLink (estilo
+                       de los badges de fuente) + `ruleGroups` (texto de RulesPanel).
+lib/week-dates.ts      dayLabel() (mostrar los DayName del backend, en minúsculas y
+                       sin acentos) + getWeek(offset) (Lunes-Domingo a `offset` semanas de la de
+                       hoy, con fechas de verdad) + relativeWeekLabel(offset) ("La semana que viene"…).
+lib/utils.ts           cn() = twMerge(clsx(...))
+public/                iconos e imágenes placeholder
+app/api/**/route.ts    Endpoints del backend real — ver sección "Backend". El frontend SÍ los usa.
+server/db/             Modelo relacional del historial: schema.sql (DDL Postgres) + tables.ts (filas zod).
+server/                Lógica del backend: pipeline de IA, motor de reglas, clientes de Gemini y
+                       Tavily, historial. Ver server/README.md y la sección "Backend" más abajo.
+```
+
+Varios componentes de `components/menu/` y de `app/*/page.tsx` hacen `import type {...} from
+'@/server/types'` — son imports de solo tipo (`import type`), TypeScript los borra por completo al
+compilar (el propio `tsconfig.json` tiene `isolatedModules: true`, que obliga a esta distinción),
+así que no meten código de servidor ni zod en el bundle del cliente. Es la fuente única de verdad
+del shape de una semana/plato: no hay un tipo `Dish`/`DayPlan` propio del frontend que mantener en
+paralelo y sincronizado a mano con el backend.
+
+Cada pieza de `components/menu/` sigue el mismo estilo denso de una línea por componente; se
+extrajeron a ficheros propios porque las comparten varias rutas, no por cambiar de convención.
+
+## Rutas
+
+`/` no es una página: `next.config.mjs` tiene un `redirects()` que manda `/` → `/planificador`
+(307, redirección "no permanente" — es un mock, no hace falta cachearla para siempre). Planificador
+y Guardados **eran pestañas de una sola página** (estado de React con `Tabs`); a petición explícita
+pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten componente ni estado:
+
+- **`/planificador`** — la semana a planificar. **Por defecto es la semana que viene, no la
+  actual** (`weekOffset` empieza en 1), a petición del usuario: siempre se planifica la siguiente.
+  Las flechas ‹ › del header (`WeekPicker`, que se pasa como `title` de `AppHeader`) mueven a
+  cualquier otra semana, el eyebrow muestra el texto relativo, y aparece "Volver a la semana que
+  viene" si se ha movido. La semana elegida da `weekLabel`/`dateLabels` a `WeekView`, así que es
+  la etiqueta con la que se guarda en el historial. `uploaded: { id, file, child }[]` (el `File` real, no solo
+  el nombre) — cada archivo se sube bajo un campo de formulario con el nombre de la niña (`Aina` /
+  `Iria`, `CHILDREN` en el propio fichero); por defecto se asigna a "Aina" y hay dos botones-pastilla
+  dentro de cada chip para retocar a quién pertenece (el backend agrupa por ese nombre de campo, ver
+  `parseSchoolMenuUploads` en `server/http.ts` — no hay una UI de "quién es cada archivo" más
+  elaborada, es la mínima necesaria para que el contrato del backend sea usable). "Generar menú
+  semanal inteligente" llama a `planFullWeek()` (`lib/api.ts` → `POST /api/menus/plan`, multipart);
+  es la única forma de generar: **el botón "Probar con un menú de ejemplo" y su
+  `EXAMPLE_SCHOOL_MENU` se quitaron a petición del usuario** (el estado vacío ya no ofrece ningún
+  atajo; `generateFromSchoolMenu()` sigue en `lib/api.ts` como cliente de
+  `POST /api/menus/generate`, pero ninguna pantalla lo usa). Tarda **~1,9 min de media** con PDF reales (medido por el
+  usuario; sin el Paso 1, `/api/menus/generate` ronda 45-60s) y puede fallar (cuota, red, etc.),
+  así que hay un `Alert` de error real. Mientras genera se muestra `GenerationProgress`
+  (`components/menu/generation-progress.tsx`): una barra que avanza en lineal hasta
+  `EXPECTED_GENERATION_MS` (114 s) pero **se para en el 99%** mientras la petición siga en vuelo, y
+  solo llega al 100% cuando responde (`generationDone`). Si termina antes, salta al 100% y se ve así
+  600 ms antes de pintar la semana. Muestra también el tiempo restante estimado. Si se cambia
+  mucho el tiempo real del pipeline, actualizar esa constante.
+  **`DayCard` ya no lleva el badge "Cole"/"Fin de semana"** (a petición: "no aporta nada"), así que
+  `isWeekendDay()` se eliminó.
+- **`/guardados`** — `useEffect` en el montaje llama a `listHistory()` (`GET /api/history`) y pinta
+  lo que devuelva de verdad; hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
+  (`<Button render={<Link .../>} nativeButton={false}>` — ver el gotcha de `nativeButton` más
+  abajo) — siempre, ya no hay un caso "Ver deshabilitado".
+- **`/semana/[slug]`** — ver más abajo.
+
+`TabNav` (`components/menu/tab-nav.tsx`) es la navegación Planificador/Guardados: **ya no** es el
+componente `Tabs` de base-ui con estado compartido, son dos `<Link>` normales con la clase activa
+calculada por una prop `active` que cada página pasa a mano (`'planner'` / `'history'`) — por eso
+`components/ui/tabs.tsx` sigue en el repo pero no lo usa nada. `AppHeader` (logo + título) y
+`PageShell` (fondo + tarjeta + layout en columna) son el resto de piezas compartidas entre
+`/planificador` y `/guardados`; `/semana/[slug]` usa `PageShell` pero no `AppHeader`/`TabNav`
+(tiene su propio `<header>` con un enlace "Volver").
+
+**El header ya no tiene botón "+"**: se quitó a petición del usuario ("no aporta nada, ya que se
+suben los menús desde el cuadrado verde") — la subida de archivos se hace solo desde la tarjeta
+verde de `/planificador` (botón "Subir" o arrastrar). No volver a añadirlo.
+
+### `WeekView` (`components/menu/week-view.tsx`)
+
+Recibe `week: WeekPlan` (el tipo real del backend, `@/server/types`) + `weekLabel: string` +
+`schoolMenu?: SchoolMenuExtraction` (para que la sustitución pueda comprobar "no repetir la comida
+escolar" de ese día) + `dateLabels?` (fechas de verdad por día, ver `lib/week-dates.ts`) +
+`title`/`subtitle`/`badgeLabel` opcionales, y es **autocontenido**: guarda su propia copia editable
+de `days` (`FinalDayPlan[]`), gestiona el `selected`/`replace` y el `Drawer` de sustitución (real,
+`substituteDish()` de `lib/api.ts`), pinta el grid de `DayCard` + el botón "Exportar
+PDF / imprimir" + `PrintMenu`. La usan tanto `/planificador` (la semana recién generada) como
+`/semana/[slug]` (una guardada) — es el único sitio con la lógica de "cambiar un plato", así que un
+cambio ahí afecta a ambas vistas.
+
+**`editable` (por defecto `true`) es lo que distingue las dos vistas — los guardados son histórico
+de solo consulta, a petición explícita ("no se pueden modificar, solo verlos").** Con
+`editable={false}` (así lo usa `/semana/[slug]`): `DayCard`/`Meal` reciben `onChange={undefined}`,
+y `Meal` **no pinta el botón "Cambiar" en absoluto** si no hay `onChange` — no es un botón
+deshabilitado, directamente no existe la posibilidad de tocar nada; el `Drawer` de sustitución
+entero tampoco se monta (`{editable && <Drawer>...}`). El badge que antes siempre decía "Listo para
+ti" ahora es configurable (`badgeLabel`); `/semana/[slug]` pasa `badgeLabel="Histórico"`.
+
+**Los 14 huecos de la semana (comida+cena de los 7 días) son siempre sustituibles** — no hay ya
+ninguna excepción por `sourceKind` ni por día: ver "Reglas dietéticas y la comida de lunes a
+viernes" más abajo para por qué esto cambió respecto a una versión anterior de este documento.
+
+Al abrir un `Meal` sustituible, `openMeal()` llama **de inmediato** a `substituteDish()` (no espera
+a que el usuario pida nada más) y el Drawer muestra un estado de carga (`LoaderCircle` +
+"Buscando alternativas...") mientras tanto — puede tardar 15-40s (Gemini + Tavily + Gemini otra
+vez, por cada una de las alternativas). El `Drawer` sigue ofreciendo **dos formas** de cambiar un
+plato: las alternativas reales devueltas por el backend **y**, debajo de un `Separator`, el mismo
+formulario libre de siempre ("O escribe tu propio plato") — ese sí sigue siendo puramente del
+cliente (`sourceKind: 'ia', sourceName: 'Manual'`, sin pasar por el backend ni validarse contra las
+reglas). `customTitle`/`alternatives`/errores se limpian tanto al abrir un `Meal` distinto
+(`openMeal`) como al cerrar el Drawer (`closeDrawer`).
+
+### Confirmar planificación → Guardados
+
+Solo cuando `editable`: botón "Confirmar planificación" (junto a "Exportar PDF / imprimir") que
+abre un **segundo** `Drawer` (independiente del de sustitución) con "¿Confirmar esta
+planificación?", un botón "Imprimir menú semanal" (reutiliza `handlePrint` = `window.print()`) y
+"Confirmar y guardar", que ahora llama de verdad a `saveHistoryEntry(weekLabel, { days,
+generatedAt })` (`POST /api/history`) y, solo si eso responde bien, navega a `/guardados` con
+`router.push` — con estado de guardando (`saving`, botón deshabilitado + spinner mientras la
+petición está en vuelo) y de error (`saveError`, un `Alert` dentro del propio Drawer si falla, sin
+cerrar el modal ni perder lo que se iba a guardar).
+
+**Lo anterior era un puente 100% mock entre `/planificador` y `/guardados`** (un query param
+`?confirmado=1` que `GuardadosContent` leía con `useSearchParams()` en un `useEffect`, con un
+`useRef` para evitar que React Strict Mode lo disparara dos veces) — ya no existe: al llamar de
+verdad a `POST /api/history` antes de navegar, `/guardados` simplemente vuelve a pedir la lista real
+(`GET /api/history`) en su propio montaje y ahí aparece. Si se encuentra código o comentarios
+mencionando ese query param en un diff antiguo, es rastro de la versión mock, ya no aplica.
+
+**Lo que se imprime tiene que ser el menú semanal, nada más — ni el modal encima, ni el resto de la
+pantalla.** Esto exigió dos arreglos en `@media print` (`globals.css`) más allá de lo que ya había:
+- `[data-slot='drawer-overlay']` y `[data-slot='drawer-viewport']` a `display: none !important`.
+  Sin esto, imprimir con el Drawer de confirmación abierto (el caso nuevo: "Imprimir menú semanal"
+  se pulsa DESDE dentro del modal) mezclaba el modal superpuesto con el `<PrintMenu>` real —
+  comprobado forzando `Emulation.setEmulatedMedia({ media: 'print' })` por CDP con el Drawer
+  todavía abierto y leyendo `getComputedStyle` de esos `data-slot`.
+- Ya de paso se limpió ruido que colaba en la impresión desde antes de este cambio y que también
+  contradecía "que solo se imprima el menú": la tarjeta de subida de `/planificador`
+  (`print:hidden` en el `<Card>`), el `<h2>{title}</h2>`/subtítulo de `WeekView` duplicando el
+  título que `PrintMenu` ya pone por su cuenta (`print:hidden` en todo ese `<div>`, no solo en el
+  subtítulo), y `RulesPanel` (que sin `print:hidden` dejaba una caja vacía — su único contenido
+  visible es un `<button>`, ya oculto por la regla global `button { display: none !important; }`,
+  pero el borde de la caja seguía imprimiéndose).
+
+## `app/semana/[slug]/page.tsx` (una semana guardada)
+
+Server component que ya **no** usa `generateStaticParams`: las semanas guardadas se crean en
+tiempo de ejecución (al "Confirmar planificación"), no se conocen en el momento del build. `slug`
+es el `id` real de un `HistoryEntry` (un UUID de `crypto.randomUUID()`, ver `server/history/store.ts`);
+como este componente corre en el servidor, lee `historyStore.get(slug)` **directamente en el mismo
+proceso** — no hace un `fetch` a su propia API por HTTP, sería una vuelta innecesaria. Un `slug` que
+no exista llama a `notFound()` (404). A propósito **no** lleva ni la tarjeta de subida ni el botón
+"Generar" — pedido explícito: una semana guardada se ve tal cual, sin la opción de añadir menús del
+cole (eso es solo de `/planificador`). Solo un enlace "Volver" a `/guardados` + el
+`<WeekView editable={false} badgeLabel="Histórico">` de esa semana.
+
+### Fuentes de un plato y estilos (`lib/menu-data.ts`)
+
+Ya no hay tipos ni datos de una semana propios del frontend — `FinalDish`/`FinalDayPlan`/`WeekPlan`
+vienen de `@/server/types` (`import type`, ver "Estructura" arriba). `lib/menu-data.ts` se quedó
+solo con lo puramente de presentación:
+
+- **`sourceStyles`**: color de badge por `sourceName` — el mismo vocabulario que usa
+  `FinalDish.sourceName` de verdad: `Generado por IA` (verde), `Cookidoo` (naranja), `El Comidista`
+  (azul), `Cookpad` (rosa), `Directo al Paladar` (ámbar), `Petitchef` (violeta), `Manual` (gris,
+  para el plato escrito a mano en el Drawer — eso sigue siendo puramente del cliente). Ya no existe
+  un source `Colegio`: el menú escolar nunca se muestra como un plato, ver más abajo.
+- **`hasExternalLink(source)`**: lista de exclusión (`Generado por IA`, `Manual` no llevan el
+  icono de enlace externo, el resto sí). En `Meal` (`day-card.tsx`) esto solo decide el
+  icono dentro del badge — el badge en sí solo se envuelve en un `<a href>` de verdad cuando
+  `data.sourceKind === 'web' && data.sourceUrl`, así que aunque se olvide añadir una fuente nueva
+  aquí, nunca se generaría un enlace falso, solo faltaría el icono decorativo.
+
+### Reglas dietéticas y la comida de lunes a viernes
+
+`ruleGroups` (`lib/menu-data.ts`) es texto informativo, no se valida en el frontend: las reglas de
+verdad las aplica el motor de reglas del backend (`server/rules/`, ver "Backend"). Los números
+(máximos, minutos) se importan de `server/rules/constants.ts`, que son constantes puras sin zod,
+así que no se desincronizan; el texto sí hay que mantenerlo a mano. **`RulesPanel` está abierto por
+defecto, a petición ("poder verlas y tenerlas en cuenta"), y se puede ocultar** con
+"Ocultar"/"Mostrar". La preferencia se guarda en `localStorage` (`mesamia:rules-panel-open`) y es
+la misma para las dos páginas. Se muestra agrupado (Equilibrio semanal / Ingredientes / Lunes a
+viernes) en dos sitios: en `/planificador`, encima del botón Generar y antes de generar nada, y en
+`/semana/[slug]` con una `note` que avisa de que son las reglas actuales (una semana guardada puede
+ser de antes de alguna). No está dentro de `WeekView`: cada página lo pone por su cuenta.
+
+**Esta app tuvo, en algún punto, dos versiones contradictorias de qué es la "Comida" de lunes a
+viernes**, y se resolvió dos veces en direcciones opuestas — la que queda vigente es la segunda,
+por instrucción explícita y sin ambigüedad del usuario: *"no me interesa saber lo que comen mis
+hijas, solo quiero que gener[e] comidas para nosotros. La comida de mis hijas tiene que tenerla en
+cuenta para no repetir la misma comida para la cena, ya está, solo sirve para eso el menú de Aina y
+el de Iria."* En una versión intermedia (ya no vigente) ese hueco llegó a mostrar el menú escolar
+real de las niñas (con badge "Colegio"), porque el pipeline solo planificaba 9 huecos y colocaba
+ahí el dato del Paso 1 al no generar nada propio para los padres. **Eso quedó descartado**: la
+comida de lunes a viernes es ahora un plato real generado por IA para los adultos de la casa, **el
+menú escolar nunca ocupa un hueco ni se muestra en ningún sitio** — solo entra como contexto en el
+Paso 2 para que la cena de ese día no repita categoría de proteína ni ingredientes con lo que las
+niñas ya comieron en el cole. Ver "El pipeline, en una frase por paso" más abajo para el diseño
+vigente.
+
+## Backend (`server/` + `app/api/**`)
+
+Pipeline de IA real para generar/sustituir menús, con endpoints de Next.js (App Router Route
+Handlers) encima. **Contratos completos de cada endpoint, con ejemplos de `curl`, están en
+`server/README.md`** — aquí solo lo que hace falta para no tener que releer todo el código.
+
+**El frontend ya llama a estos endpoints de verdad** (ver "Rutas" arriba): `lib/api.ts` es el
+cliente HTTP del lado del cliente para los 6; `app/semana/[slug]/page.tsx` es la única excepción —
+como corre en el servidor, lee `server/history/store.ts` directamente en vez de hacer un `fetch` a
+su propia API.
+
+### Variables de entorno — nunca hardcodear claves
+
+`GEMINI_API_KEY` y `TAVILY_API_KEY` se leen solo en `server/env.ts` (`requireEnv()`), que lanza un
+`ConfigError` con mensaje explícito si faltan — comprobado de verdad pegándole a los endpoints sin
+esas variables puestas: responden `500 config_error` limpio, no un stack trace. Plantilla en
+`.env.local.example` (copiar a `.env.local`, que ya está en `.gitignore` vía el patrón
+`.env*.local` que ya traía el proyecto). Modelos configurables por env (`GEMINI_MODEL_FLASH`,
+`GEMINI_MODEL_PRO`), con default si no se fijan — nunca una versión de modelo hardcodeada a pelo
+sin forma de cambiarla.
+
+**`.env.local` ya tiene claves reales puestas** (el usuario las dio en el chat; se guardaron solo
+ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de nivel gratuito — ver
+"Credenciales reales configuradas" más abajo para las limitaciones de modelo que eso implica.
+
+### El pipeline, en una frase por paso
+
+1. **Extracción** (`server/pipeline/step1-extract-school-menu.ts`, Gemini Flash) — una llamada
+   **por niña** (no una mezclando todos los documentos): el cliente ya dice de forma fiable a
+   quién pertenece cada archivo (el nombre del campo del formulario), así que Gemini no tiene que
+   adivinar esa atribución, solo extraer.
+2. **Planificación** (`step2-plan-week.ts`, Gemini Pro) — pide los 14 "huecos" (comida y cena de
+   los 7 días, **todos**, incluida la comida de lunes a viernes: ese hueco es para los adultos de
+   la casa, ver "Reglas dietéticas y la comida de lunes a viernes" más arriba) y valida el
+   resultado con `server/rules/engine.ts`, que es código determinista, no el LLM marcando su
+   propia tarea. Si incumple algo, reintenta pasándole el detalle exacto de qué falló (hasta 3
+   veces) — es lo que convierte esto en un pipeline con verificación, no una llamada a ciegas. El
+   menú escolar de las niñas se le da como contexto únicamente para que las cenas de lunes a
+   viernes no lo repitan; no limita en nada la comida de esos días.
+3. **Candidatas** (`step3-fetch-recipes.ts`, Tavily) — una búsqueda por plato, todas en
+   `Promise.all` (concurrentes, como pide el enunciado). Restringida a `cookidoo.es`,
+   `elpais.com/gastronomia/el-comidista`, `directoalpaladar.com`, `cookpad.com`, `petitchef.es`
+   (`server/clients/tavily.ts`, `ALLOWED_SOURCES`). `searchRecipeCandidates` devuelve **hasta 3
+   candidatas**, de sitios distintos siempre que puede. Solo acepta páginas de UNA receta
+   (`recipePath` por sitio: sin `cookpad.com/es/buscar/...` ni páginas de categoría) con al menos
+   `MIN_CANDIDATE_CHARS` (800) de contenido. Aquí no se elige ninguna.
+4. **Elección** (`step4-consolidate.ts` → `selectRecipes`, Gemini Flash; es una llamada por plato,
+   como antes) — Gemini compara las candidatas con **su propia receta** del plato y se queda con la
+   mejor (`RecipeSelectionSchema`: `choice` `'ia' | '1' | '2' | '3'` + `reason` + la receta
+   estandarizada). Una candidata solo vale si es de verdad el plato planificado y cumple las
+   restricciones. Si elige `'ia'`, escribe una receta completa con todos sus ingredientes, tiempo
+   y dificultad. Sin candidatas elige `'ia'`; nunca se inventa una fuente web (un `choice` que no
+   corresponde a ninguna candidata se trata como `'ia'`).
+   **Por qué existe**: antes el Paso 3 cogía el PRIMER resultado de Tavily y el Paso 4 solo lo
+   limpiaba. Tavily casi siempre devuelve algo, así que casi el 100% de los platos acababan siendo
+   web, aunque la página fuera otro plato o un listado de búsqueda (detectado por el usuario). En
+   la primera prueba real con la elección, el reparto fue 3 IA / 7 Cookpad / 3 Directo al Paladar /
+   1 Cookidoo, y los motivos tenían sentido: "la candidata tarda 60 min un martes", "las tres
+   candidatas son variantes (al horno, guisada, con queso), no la tortilla clásica".
+5. **Ensamblado** (`assemble.ts`) — construye el JSON final de 7 días, todo a partir del Paso 2
+   (enriquecido por el Paso 4 si hubo receta). El menú escolar no interviene aquí en absoluto: solo
+   fue contexto para el Paso 2, nunca se convierte en un `FinalDish`.
+
+`server/pipeline/orchestrator.ts` expone `generateFromSchoolMenu()` (pasos 2-4, usado por
+`POST /api/menus/generate`) y `planFullWeek()` (1-4 de una
+vez, usado por `POST /api/menus/plan` y por el botón "Generar" real de `/planificador`);
+`server/pipeline/substitute.ts` es la versión de un solo hueco con N alternativas — es exactamente
+lo que dispara el botón "Cambiar" real del Drawer de `WeekView`, ver "Rutas" arriba.
+
+### Por qué el menú escolar nunca ocupa un hueco
+
+A petición explícita del usuario, el menú del cole/guardería de Aina e Iria **no es información que
+la app tenga que mostrar** — a nadie le interesa ver ahí lo que comen las niñas. Su único propósito
+es servir de contexto en el Paso 2 (y en la sustitución) para que la cena de cada día de cole no
+repita categoría de proteína ni ingredientes con lo que ellas ya comieron. Por eso `PLANNED_SLOTS`
+cubre los 14 huecos reales (comida+cena de los 7 días) y `assembleWeek`/`dishFromPlannedSlot`
+(`server/pipeline/assemble.ts`) no tienen ninguna rama que construya un `FinalDish` a partir del
+menú escolar — `DishSourceKindSchema` ni siquiera admite un valor `'escolar'` (solo `'ia' | 'web'`),
+y `FinalDish` no lleva ya un campo `child`. Una versión anterior de este documento describía lo
+contrario (el pipeline solo planificaba 9 huecos y colocaba el menú escolar real en la comida
+L-V) — quedó descartado por completo, ver "Reglas dietéticas y la comida de lunes a viernes" arriba.
+
+### Restricciones de la familia (`server/rules/restrictions.ts`)
+
+Pedidas por el usuario, además de los límites semanales de proteína:
+- Sin marisco (crustáceos y bivalvos). **Pota, calamar, pulpo y sepia sí están permitidos**, y se
+  clasifican como `pescado`, así que cuentan para el máximo semanal de pescado.
+- Sin atún (ni bonito del norte) y sin aceitunas. El aceite de oliva sí está permitido: por eso la
+  lista usa "olivas" en plural y nunca "oliva".
+- El único pescado es merluza (o pescadilla) o salmón, además de los cefalópodos. Cualquier otro
+  pescado está prohibido **también como ingrediente secundario** (anchoas en una pizza, por
+  ejemplo). Un plato `pescado` tiene que nombrar la especie; "pescado blanco" no vale.
+- De lunes a viernes (comida y cena), la receta tiene que ser `difficulty: 'facil'` y durar
+  `totalTimeMinutes ≤ 50`. A Gemini se le pide apuntar a 40 (`TARGET_WEEKDAY_MINUTES` /
+  `MAX_WEEKDAY_MINUTES` en `constants.ts`). El fin de semana no tiene límite.
+
+Para esto `PlannedDish`, `ConsolidatedRecipe` y `FinalDish` llevan `totalTimeMinutes` y
+`difficulty`: Gemini los estima al planificar y los extrae de la página web al consolidar. En
+`FinalDish` son opcionales porque las semanas antiguas y los platos manuales no los tienen.
+`DayCard` los muestra ("30 min · Fácil"), y en BD son las columnas
+`recipes.total_time_minutes`/`difficulty`.
+
+Estas reglas se comprueban **dos veces**, siempre con código determinista:
+1. En `validateWeekDraft` (Paso 2 y sustitución), sobre título + `mainIngredients`, con reintento
+   como el resto de reglas.
+2. En `selectRecipes` (Paso 4), sobre la **receta elegida**, web o propia de Gemini, porque una
+   paella de Cookidoo puede traer gambas aunque el plato planificado no las mencionara. Si incumple
+   algo, se descarta y el hueco se queda con el plato tal cual lo planificó el Paso 2, que ya pasó
+   la validación.
+
+La detección es por palabra completa con plural opcional; no es NLP. Un ingrediente que no esté en
+las listas no se detecta: ampliar las listas si aparece alguno. Se probó con 21 casos (calamares,
+chipirones, "aceite de oliva", anchoas, zamburiñas, cocido un miércoles frente a un domingo...) y
+con una generación real contra Gemini y Tavily, que dio 0 violaciones.
+
+### "Tipología del plato" y el motor de reglas
+
+El enunciado no define qué es "tipología del plato" más allá de las 4 categorías que sí acota
+(huevo/ave/pescado/carne roja) + legumbres. Se interpretó como la categoría de proteína
+(`ProteinCategory`: `huevo | ave | pescado | carne_roja | legumbre | otro`), la lectura más
+concreta y comprobable — es la que usa `validateWeekDraft()` tanto para el límite de "no repetir
+respecto al cole" como para los máximos/mínimos semanales. El solape de ingredientes es una
+heurística de texto (normaliza acentos/mayúsculas, compara por igualdad o contención — "pollo"
+casa con "pechuga de pollo"), no NLP real; ver los comentarios de `server/rules/engine.ts` antes de
+tocarla.
+
+### Historial (`server/history/store.ts`)
+
+Interfaz `HistoryStore` pequeña a propósito, para poder cambiar la implementación sin tocar rutas
+ni pipeline. Modelo relacional en `server/db/schema.sql` (DDL de PostgreSQL, hoy no se ejecuta en ningún
+sitio) y su espejo zod en `server/db/tables.ts`, con los mismos nombres de tabla y columna:
+
+```
+saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+```
+
+- `saved_weeks`: una fila por semana confirmada (`label`, `week_start` = lunes de la semana
+  elegida en el planificador, `generated_at`, `created_at`).
+- `week_meals`: los 14 huecos de cada semana (PK `week_id, day, meal`) → `recipe_id`.
+- `recipes`: catálogo de recetas compartido entre semanas, **inmutable y direccionado por
+  contenido**: `fingerprint` (UNIQUE) es un sha256 de todo el plato. Un plato idéntico reutiliza la
+  fila y cualquier diferencia crea otra, así que guardar una semana nueva nunca altera una antigua.
+- `recipe_ingredients`: ingredientes en orden (PK `recipe_id, position`), texto libre.
+
+Borrar una semana borra sus `week_meals` (CASCADE) pero **no** sus recetas: se quedan en el
+histórico de recetas.
+
+**Almacenamiento actual**: `server/history/store.ts` guarda esas mismas tablas como filas en un
+único JSON, `.data/mesamia-db.json` dentro del proyecto (o `MESAMIA_DATA_DIR`; en Vercel,
+`os.tmpdir()`, que es efímero). Escribe de forma atómica (fichero temporal + `rename`) y pone las
+escrituras en cola dentro del proceso. Si el JSON está corrupto, falla en vez de tratarlo como
+vacío, para que el siguiente guardado no borre el histórico. **Para pasar a una BD real**: ejecutar
+`schema.sql` e implementar `HistoryStore` con SQL; las rutas y el frontend no cambian.
+
+### Credenciales reales configuradas — el pipeline SÍ se ha probado contra Gemini y Tavily de verdad
+
+`.env.local` tiene `GEMINI_API_KEY`/`TAVILY_API_KEY` reales (nunca en el código, siempre por env —
+ver "Variables de entorno" arriba). Con ellas puestas, se ejecutó de verdad (no solo `tsc` ni
+errores simulados) `POST /api/menus/generate` completo y `POST /api/menus/substitute`, además de
+llamadas sueltas a `generateStructured` y `searchRecipe`. Antes de eso también se verificó sin
+claves (los 6 endpoints devuelven el código/forma de error correctos ante config ausente, body
+inválido, archivo no soportado, id de historial inexistente) y el motor de reglas + ensamblado con
+datos sintéticos — ambas rondas usando una ruta de diagnóstico temporal, creada y borrada en la
+propia sesión (**nota**: una carpeta de ruta que empieza por `_`, p. ej. `app/api/_debug/...`, es
+"privada" en el App Router y Next la excluye del enrutado sin avisar — 404 silencioso, no un error;
+si se crea otra ruta de diagnóstico temporal, no usar ese prefijo).
+
+Tres cosas que solo se descubrieron probando con la API real (ninguna la detectaba `tsc` ni los
+tests con datos sintéticos):
+
+1. **`GEMINI_MODEL_PRO` no podía ser un modelo Pro de verdad con esta clave (nivel gratuito)**:
+   `gemini-2.5-pro` da 404 ("no longer available to new users"), y `gemini-3.1-pro-preview` —el
+   que el propio error de Google sugiere como sustituto— da 429 (cuota 0 en ese nivel). El default
+   quedó en `gemini-2.5-flash` (el mismo modelo que `GEMINI_MODEL_FLASH`), documentado como tal en
+   `server/env.ts` — no es una limitación de esta app, es de la cuenta/clave; con una clave de pago
+   se puede fijar un Pro real por variable de entorno sin tocar código.
+2. **Las 3 alternativas de `/api/menus/substitute` salían con el mismo título y la misma receta**,
+   solo cambiaba `proteinCategory`. Causa: `server/pipeline/step3-fetch-recipes.ts` y
+   `step4-consolidate.ts` indexaban por `slotKey(day, meal)` — funciona para una semana completa
+   (cada combinación día+comida es única entre los 14 huecos), pero las N alternativas de un mismo
+   hueco de sustitución comparten día y comida, así que las 3 colisionaban en la misma clave del
+   `Map` y se sobrescribían. Arreglado pasando la clave explícitamente desde quien llama (`{ key,
+   dish }` en vez de derivarla dentro de `fetchRecipes`/`dishFromPlannedSlot`): la generación de
+   semana completa sigue usando `slotKey(day, meal)`; la sustitución usa el índice de la
+   alternativa (`alt:0`, `alt:1`, `alt:2`). Si se añade otro sitio con "varios candidatos para el
+   mismo hueco", aplicar el mismo patrón (clave explícita, nunca derivada de day/meal).
+3. **El bucle de reintento de la sustitución gastaba una llamada de más intentando arreglar algo
+   que no podía**: `validateWeekDraft` revalida la semana entera (los otros 13 huecos + el
+   candidato), así que puede devolver una violación de un día distinto al que se está sustituyendo
+   — cambiar la cena del lunes no arregla que la del viernes ya repitiera algo del cole antes de
+   esta llamada. `server/pipeline/substitute.ts` ahora filtra con `isRelevantViolation()`: solo
+   cuentan las violaciones de máximos/mínimos semanales (esas sí las afecta el candidato, se cuentan
+   sobre las 14 raciones) o las del propio día/comida sustituido — el resto ni dispara reintento ni
+   contamina la respuesta.
+
+Además, `server/clients/{gemini,tavily}.ts` reintentan automáticamente (hasta 3 veces, con backoff)
+solo 429/5xx — el nivel gratuito de Gemini tiene un límite de peticiones por minuto bastante bajo,
+comprobado de verdad: una llamada aislada puede fallar con 429 sin que haya nada mal en ella. Un
+400/401/403 no se arregla reintentando, así que esos se siguen propagando al momento.
+
+**Conectado el frontend, se repitió la misma disciplina — probado con clics reales en un navegador
+(CDP), no solo `curl`, con las claves reales puestas**: generar con "Probar con un menú de ejemplo"
+→ contar que salen exactamente 14 botones "Cambiar" (uno por hueco: comida+cena de los 7 días) →
+abrir uno, esperar las alternativas reales, elegir una → "Confirmar planificación" → aparece de
+verdad en `/guardados` con una URL real (`/semana/<uuid>`) → abrirla y comprobar que es de solo
+lectura (0 "Cambiar") y que el plato sustituido antes de confirmar es el que quedó guardado.
+
+## Convenciones y detalles que importan
+
+- **Estilo de código muy comprimido**: cada `page.tsx` y cada componente de `components/menu/`
+  meten un componente entero en una línea. Al editar, mantener ese estilo o el diff se vuelve
+  ilegible. Sin punto y coma, comillas simples.
+- **Idioma**: toda la UI está en español. `<html lang="es">`.
+- **Color de marca**: `emerald-600` para acentos, fondo `#f5f8f6`. Los tokens shadcn de
+  `globals.css` son los neutros por defecto y casi no se usan — el diseño va con clases Tailwind
+  directas (`emerald-*`, `slate-*`).
+- **Sin modo oscuro, a petición explícita ("siempre quiero que se muestre igual").** La app nunca
+  cambia con `prefers-color-scheme`, aunque el sistema esté en oscuro (comprobado forzando
+  `prefers-color-scheme: dark` por CDP con `Emulation.setEmulatedMedia`). Cómo queda montado:
+  - `globals.css` ya **no tiene** ni la clase `.dark { ... }` ni el bloque
+    `@media (prefers-color-scheme: dark) { :root:not(.light) {...} }` que hacía que las variables
+    (`--background`, `--foreground`, etc.) cambiaran solas con el sistema. Solo queda el `:root`
+    claro.
+  - **Pero `@custom-variant dark (&:is(.dark *));` se mantiene a propósito** — no es un descuido.
+    Varios primitivos de `components/ui/` (`button.tsx`, `badge.tsx`, `tabs.tsx`) ya traen clases
+    `dark:...` de fábrica (de cuando se generaron con shadcn). Esa línea redefine `dark:` para que
+    dependa de una clase `.dark` que esta app nunca añade a ningún elemento; sin ella, Tailwind v4
+    usa su propio `dark:` por defecto (`@media (prefers-color-scheme: dark)`), y esas clases
+    `dark:...` que ya existen en los primitivos volverían a reaccionar al sistema. **Si algún día
+    se "limpia" esa línea creyendo que ya no hace falta, el modo oscuro vuelve por la puerta de
+    atrás.**
+  - `app/layout.tsx`: `viewport.colorScheme` es `'light'` (no `'light dark'`) y `themeColor` es un
+    único `'white'` (no un array por media query). El icono también es uno solo
+    (`icon-light-32x32.png` + el SVG); `public/icon-dark-32x32.png` se quedó sin usar en el repo,
+    no hace falta borrarlo pero tampoco referenciarlo desde ningún sitio nuevo.
+- **Impresión**: `globals.css` tiene un `@media print` cuidado (A4, oculta tabs y botones, evita
+  cortes con `break-inside: avoid`). `PrintMenu` es `hidden print:block` — es la versión que se
+  imprime, distinta de las tarjetas de pantalla. Si cambias una, cambia la otra.
+- **Inconsistencia conocida**: las primitivas importan `cn` desde el paquete npm `"cn"`, excepto
+  `button.tsx` que lo importa de `'@/lib/utils'`. Ambas funcionan; `@/lib/utils` es lo correcto.
+- **`@base-ui/react` no usa las convenciones de Radix.** Dos casos ya pillados en este proyecto:
+  - No existe `asChild`: para fundir un componente hijo con un trigger/close hay que pasar
+    `render={<Componente />}`, p. ej. `<DrawerClose render={<Button variant="outline">Cancelar</Button>} />`.
+    `asChild` no siempre da error de tipos, pero la prop se ignora en runtime y queda un `<button>`
+    anidado dentro de otro.
+  - El estado "activo" de un `Tab` no se marca con `data-state="active"` (Radix) sino con la
+    presencia del atributo `data-active` (sin valor). Un selector `data-[state=active]:...` en
+    Tailwind **no falla, simplemente no coincide nunca**. El selector correcto es `data-active:...`.
+    Revisar `grep -rn "data-\[state" app/ components/` si se copia código de ejemplos shadcn/Radix.
+    (Esto salió al usar el `Tabs` de base-ui para Planificador/Guardados; ahora esa navegación son
+    dos `<Link>` en `TabNav`, sin `Tabs`, así que ya no aplica ahí — pero sigue siendo válido si se
+    usa `Tabs`/`Collapsible`/cualquier primitiva de base-ui con estado "activo" en el futuro.)
+  - Cuando `render` sustituye el `<button>` por algo que **no** es un botón nativo (p. ej.
+    `<Button render={<Link href="...">Ver</Link>} />` para que un botón navegue de verdad), hay que
+    añadir `nativeButton={false}`. Si no, Base UI avisa por consola ("expected a native `<button>`
+    because the `nativeButton` prop is true...") y trata el elemento con semántica/accesibilidad de
+    botón nativo aunque sea un `<a>`. Por defecto `nativeButton` es `true`.
+- **`next.config.mjs` tiene `typescript.ignoreBuildErrors: true`** e `images.unoptimized`. El build
+  no falla por errores de tipos, así que conviene comprobarlos aparte (`pnpm exec tsc --noEmit`);
+  así se detectó el bug de `asChild` de arriba.
+- Layout pensado mobile-first, pero el contenido escala a 2–3 columnas en `xl`/`2xl`.
+- **`TabNav`**: va **arriba**, justo debajo del `<header>` de cada página (no abajo como una barra
+  de app nativa — así era en un diseño anterior; se cambió a petición, y luego Planificador/Guardados
+  pasaron de pestañas a páginas de verdad, ver "Rutas"). Visualmente sigue siendo un segmented
+  control: pista gris (`bg-slate-100`) con una píldora blanca (`bg-white` + `shadow-sm`) en el enlace
+  activo — el estado activo rellena toda la celda para que sea inequívoco, no un simple cambio de
+  color de texto. `sticky top-0` para que siga visible al hacer scroll por el menú semanal.
+- **El botón "Generar menú semanal inteligente" desbordaba toda la página en móvil estrecho
+  (< ~480px, p. ej. iPhone SE a 320–375px)**: `Button` fuerza `whitespace-nowrap` y una altura fija
+  (`h-8` de su variante por defecto); ese texto largo en una sola línea no cabía, y como el botón es
+  un item dentro del contenedor `flex-col` de `PageShell`, forzaba a TODO el ancho de página
+  (cabecera, `TabNav`, tarjetas) a crecer más que el viewport — no era un problema solo del botón.
+  Se corrigió pasándole `h-auto min-h-12 whitespace-normal` (deja que el texto envuelva a 2 líneas si
+  hace falta) — hay que anular explícitamente `h-8` con `h-auto`, ya que `min-h-12` es una propiedad
+  CSS distinta y `twMerge` no las considera en conflicto. Si se añade otro botón/CTA con texto largo
+  y `w-full`, revisar lo mismo. **Para comprobar overflow horizontal en móvil, no basta con
+  `--headless=new --window-size=W,H --screenshot`** (ese modo no fija el viewport de forma fiable,
+  puede dar falsos positivos/negativos); hay que forzar el viewport por CDP
+  (`Emulation.setDeviceMetricsOverride`) o revisar `document.documentElement.scrollWidth` en un
+  navegador real.
+- **Al probar por CDP la subida de archivos (el `<input type="file">` oculto dentro del
+  `<label>` "Subir")**: un clic simulado con `Runtime.evaluate` (JS `.click()`) no
+  cuenta como gesto de usuario real, así que Chrome no abre el selector de archivos nativo ni emite
+  `Page.fileChooserOpened` — parece "roto" pero no lo está. Hay que simular el clic con
+  `Input.dispatchMouseEvent` (mousePressed + mouseReleased) sobre las coordenadas reales del botón.
+
+## Qué falta si esto pasa a producción
+
+El circuito completo **funciona de verdad**, probado con claves reales de principio a fin: subir
+menús → generar → sustituir un plato → confirmar y guardar →
+verlo en Guardados → abrir esa semana guardada de solo lectura. Lo que sigue faltando para un uso
+real, no ya de prototipo:
+
+- **Persistencia real.** El modelo relacional ya está definido (`server/db/schema.sql`), pero hoy
+  se guarda en un JSON local (`.data/mesamia-db.json`), que no sobrevive a un despliegue
+  serverless. Falta crear ese esquema en una BD real e implementar `HistoryStore` con SQL.
+- Autenticación y gestión de familias/niños (hoy es de un único hogar sin usuarios; el historial es
+  una única lista global compartida por cualquiera que use la app).
+- **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se
+  retoca con dos botones-pastilla dentro del chip (ver "Rutas" arriba) — funciona, pero es la
+  mínima UI posible para el contrato del backend (un campo de formulario por niña), no un diseño
+  pensado para más de dos hijos o para hacerlo más evidente a la primera.
+- **Cuota del nivel gratuito de Gemini.** Con la clave real puesta en este proyecto, probar varias
+  veces seguidas (varias generaciones/sustituciones en poco tiempo) puede toparse con el límite de
+  peticiones por minuto — los clientes reintentan automáticamente (`server/clients/{gemini,tavily}.ts`),
+  pero una sesión de pruebas intensiva igualmente puede tardar más o fallar tras agotar los
+  reintentos. No es un bug de la app, es el nivel gratuito de la cuenta (ver "Backend").
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
