@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
+import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
-import { historyStore } from '@/server/history/store'
+import { getHistoryStore } from '@/server/history/store'
 import { MealChangeSchema, WeekPlanSchema } from '@/server/types'
 import { z } from 'zod'
 
@@ -10,13 +11,15 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/history
 // Lista las semanas guardadas, más recientes primero.
-export async function GET() {
-  try {
-    const entries = await historyStore.list()
-    return NextResponse.json({ entries })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+export async function GET(request: Request) {
+  return withTestMode(request, async () => {
+    try {
+      const entries = await getHistoryStore().list()
+      return NextResponse.json({ entries })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }
 
 const SaveBodySchema = z.object({
@@ -30,18 +33,20 @@ const SaveBodySchema = z.object({
 // Confirma/guarda una semana ya generada (equivalente a "Confirmar planificación" en el
 // frontend). Body JSON: { label: string, weekStart?: 'YYYY-MM-DD', week: WeekPlan, changes?: MealChange[] }.
 export async function POST(request: Request) {
-  try {
-    const body = await request.json().catch(() => {
-      throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
-    })
-    const parsed = SaveBodySchema.safeParse(body)
-    if (!parsed.success) {
-      throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
-    }
+  return withTestMode(request, async () => {
+    try {
+      const body = await request.json().catch(() => {
+        throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
+      })
+      const parsed = SaveBodySchema.safeParse(body)
+      if (!parsed.success) {
+        throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
+      }
 
-    const entry = await historyStore.save(parsed.data.label, parsed.data.week, parsed.data.weekStart, parsed.data.changes)
-    return NextResponse.json({ entry }, { status: 201 })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+      const entry = await getHistoryStore().save(parsed.data.label, parsed.data.week, parsed.data.weekStart, parsed.data.changes)
+      return NextResponse.json({ entry }, { status: 201 })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }

@@ -1,4 +1,5 @@
 import type { DayName, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, WeekPlan } from '@/server/types'
+import { testModeHeaders } from '@/lib/test-mode'
 
 // Cliente HTTP del frontend hacia app/api/**. Cada función hace exactamente una llamada y devuelve
 // ya tipado el `data` de la respuesta — el manejo de error (parsear { error: { code, message } } y
@@ -11,6 +12,12 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.code = code
   }
+}
+
+// Todas las llamadas pasan por aquí para añadir la cabecera del modo pruebas (lib/test-mode.ts)
+// cuando está activo: el servidor entonces no llama a Gemini ni a Tavily.
+function apiFetch(url: string, init: RequestInit & { headers?: Record<string, string> } = {}): Promise<Response> {
+  return fetch(url, { ...init, headers: { ...testModeHeaders(), ...init.headers } })
 }
 
 async function parseOrThrow<T>(response: Response): Promise<T> {
@@ -30,7 +37,7 @@ export async function planFullWeek(uploads: SchoolMenuUpload[], weekStart?: stri
   const formData = new FormData()
   for (const upload of uploads) for (const file of upload.files) formData.append(upload.child, file)
   if (weekStart) formData.append('weekStart', weekStart)
-  const response = await fetch('/api/menus/plan', { method: 'POST', body: formData })
+  const response = await apiFetch('/api/menus/plan', { method: 'POST', body: formData })
   return parseOrThrow(response)
 }
 
@@ -38,7 +45,7 @@ export async function planFullWeek(uploads: SchoolMenuUpload[], weekStart?: stri
 // usa ninguna pantalla (el botón "Probar con un menú de ejemplo" se quitó), se mantiene como cliente
 // del endpoint.
 export async function generateFromSchoolMenu(schoolMenu: SchoolMenuExtraction, weekStart?: string): Promise<{ week: WeekPlan; violations: RuleViolation[] }> {
-  const response = await fetch('/api/menus/generate', {
+  const response = await apiFetch('/api/menus/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ schoolMenu, weekStart }),
@@ -48,7 +55,7 @@ export async function generateFromSchoolMenu(schoolMenu: SchoolMenuExtraction, w
 
 // POST /api/menus/substitute — alternativas reales para un único hueco ("Cambiar").
 export async function substituteDish(input: { day: DayName; meal: MealSlot; currentWeek: WeekPlan; schoolMenu?: SchoolMenuExtraction; count?: number; weekStart?: string }): Promise<{ alternatives: FinalDish[]; violations: RuleViolation[] }> {
-  const response = await fetch('/api/menus/substitute', {
+  const response = await apiFetch('/api/menus/substitute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -59,7 +66,7 @@ export async function substituteDish(input: { day: DayName; meal: MealSlot; curr
 // POST /api/history — "Confirmar planificación".
 // `changes`: qué huecos cambió la familia respecto a la propuesta de la IA (aprendizaje de gustos).
 export async function saveHistoryEntry(label: string, week: WeekPlan, weekStart?: string, changes?: MealChange[]): Promise<{ entry: HistoryEntry }> {
-  const response = await fetch('/api/history', {
+  const response = await apiFetch('/api/history', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, weekStart, week, changes }),
@@ -69,18 +76,18 @@ export async function saveHistoryEntry(label: string, week: WeekPlan, weekStart?
 
 // GET /api/history — listado de Guardados.
 export async function listHistory(): Promise<{ entries: HistoryEntry[] }> {
-  const response = await fetch('/api/history', { cache: 'no-store' })
+  const response = await apiFetch('/api/history', { cache: 'no-store' })
   return parseOrThrow(response)
 }
 
 // DELETE /api/history/[id] — borra una semana guardada (y sus recetas si ninguna otra semana las usa).
 export async function deleteHistoryEntry(id: string): Promise<void> {
-  const response = await fetch(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const response = await apiFetch(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' })
   await parseOrThrow(response)
 }
 
 // GET /api/history/context — qué semanas anteriores (y en qué texto) verá la IA al planificar.
 export async function getTasteContext(weekStart?: string): Promise<{ weeks: Array<{ id: string; label: string; weekStart?: string }>; text: string; instructions: string }> {
-  const response = await fetch(`/api/history/context${weekStart ? `?weekStart=${weekStart}` : ''}`, { cache: 'no-store' })
+  const response = await apiFetch(`/api/history/context${weekStart ? `?weekStart=${weekStart}` : ''}`, { cache: 'no-store' })
   return parseOrThrow(response)
 }

@@ -2,6 +2,8 @@ import { ApiError, GoogleGenAI, type Content, type Part } from '@google/genai'
 import { z } from 'zod'
 import { getGeminiApiKey } from '../env'
 import { UpstreamApiError } from '../errors'
+import { isTestMode } from '../test-mode'
+import { fakeGenerateStructured } from '../testing/fake-gemini'
 
 let cachedClient: GoogleGenAI | null = null
 
@@ -76,6 +78,12 @@ export async function generateStructured<Schema extends z.ZodType>({
   systemInstruction,
   temperature = 0.4,
 }: GenerateStructuredInput<Schema>): Promise<z.infer<Schema>> {
+  // Modo pruebas: datos de prueba en vez de llamar a Gemini (server/testing/fake-gemini.ts). Se
+  // validan con el mismo esquema, así que un dato de prueba mal formado falla igual que uno real.
+  if (isTestMode()) {
+    const prompt = contents.flatMap(content => content.parts ?? []).map(part => part.text ?? '').join('\n')
+    return schema.parse(await fakeGenerateStructured(schema, systemInstruction, prompt))
+  }
   const ai = getClient()
 
   let response

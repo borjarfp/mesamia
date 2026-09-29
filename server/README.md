@@ -185,6 +185,17 @@ día (`formatSchoolDay`), con estas instrucciones (`SCHOOL_CONTEXT_LINES`):
 - la cena no repite la proteína ni los ingredientes del cole. Esta última es obligatoria y la valida
   también el motor de reglas.
 
+## Modo pruebas (cabecera `x-mesamia-pruebas: 1`)
+
+Con esa cabecera (el frontend la pone si la URL lleva `?pruebas=1`) no se llama a Gemini ni a
+Tavily: `server/clients/{gemini,tavily}.ts` devuelven datos de `server/testing/`, y el historial usa
+`.data/mesamia-db.pruebas.json` en vez de la BD real. El resto del pipeline corre igual. Ejemplo:
+
+```bash
+curl -X POST http://localhost:3000/api/menus/plan -H "x-mesamia-pruebas: 1" \
+  -F "Aina=@menu-aina.pdf" -F "weekStart=2026-10-12"
+```
+
 ## Historial de gustos (`server/history/taste-context.ts`)
 
 `/generate`, `/plan` y `/substitute` aceptan `weekStart`. Con él, **el servidor añade solo al
@@ -252,7 +263,7 @@ semana completa):
 - **El frontend ya está conectado** (`lib/api.ts`, `app/planificador`, `app/guardados`,
   `components/menu/week-view.tsx`) — "Generar" llama a `/api/menus/plan`, "Cambiar" a
   `/api/menus/substitute`, "Confirmar planificación" a `POST /api/history`, y `/semana/[slug]` lee
-  `historyStore` directamente (mismo proceso, sin HTTP de por medio). Detalle de cómo, en `CLAUDE.md`.
+  `getHistoryStore()` directamente (mismo proceso, sin HTTP de por medio). Detalle de cómo, en `CLAUDE.md`.
 - Sin autenticación ni multi-familia: es de un solo hogar. Añadir usuarios implicaría namespacing
   del historial (hoy es una única lista global en el fichero de `HistoryStore`).
 - Los reintentos (Paso 2: hasta 3; sustitución: hasta 2) acotan coste/latencia, pero no garantizan

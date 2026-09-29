@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { getTasteContext, TASTE_CONTEXT_INSTRUCTIONS } from '@/server/history/taste-context'
 import { toErrorResponse } from '@/server/http'
@@ -12,12 +13,14 @@ export const dynamic = 'force-dynamic'
 // interpretarlo (`instructions`). Sirve para mostrarlo en el planificador y para depurar. Es un
 // segmento estático, así que Next lo resuelve antes que /api/history/[id].
 export async function GET(request: Request) {
-  try {
-    const weekStart = new URL(request.url).searchParams.get('weekStart') ?? undefined
-    if (weekStart && !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
-    const taste = await getTasteContext(weekStart)
-    return NextResponse.json({ ...taste, instructions: TASTE_CONTEXT_INSTRUCTIONS })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+  return withTestMode(request, async () => {
+    try {
+      const weekStart = new URL(request.url).searchParams.get('weekStart') ?? undefined
+      if (weekStart && !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
+      const taste = await getTasteContext(weekStart)
+      return NextResponse.json({ ...taste, instructions: TASTE_CONTEXT_INSTRUCTIONS })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }

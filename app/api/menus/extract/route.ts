@@ -1,4 +1,5 @@
 import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
+import { withTestMode } from '@/server/test-mode'
 import { extractSchoolMenu } from '@/server/pipeline/step1-extract-school-menu'
 import { NextResponse } from 'next/server'
 
@@ -16,12 +17,14 @@ export const runtime = 'nodejs'
 // correcta de un menú mensual. La respuesta incluye menuStartDate/menuEndDate por niña si el
 // documento trae fechas.
 export async function POST(request: Request) {
-  try {
-    const formData = await request.formData()
-    const uploads = await parseSchoolMenuUploads(formData)
-    const schoolMenu = await extractSchoolMenu(uploads, parseWeekStartField(formData))
-    return NextResponse.json({ schoolMenu })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+  return withTestMode(request, async () => {
+    try {
+      const formData = await request.formData()
+      const uploads = await parseSchoolMenuUploads(formData)
+      const schoolMenu = await extractSchoolMenu(uploads, parseWeekStartField(formData))
+      return NextResponse.json({ schoolMenu })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }

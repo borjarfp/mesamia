@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { DayCard } from '@/components/menu/day-card'
 import { PrintMenu } from '@/components/menu/print-menu'
 import { ResponsiveModal } from '@/components/menu/responsive-modal'
+import { EXPECTED_SUBSTITUTION_MS, GenerationProgress } from '@/components/menu/generation-progress'
 import { sourceStyles } from '@/lib/menu-data'
 
 type Selected = { day: DayName; meal: MealSlot }
@@ -60,6 +61,7 @@ export function WeekView({
   const [selected, setSelected] = useState<Selected | null>(null)
   const [alternatives, setAlternatives] = useState<FinalDish[]>([])
   const [substituting, setSubstituting] = useState(false)
+  const [substituteDone, setSubstituteDone] = useState(false)
   const [substituteError, setSubstituteError] = useState<string | null>(null)
   const [customTitle, setCustomTitle] = useState('')
   const [customDescription, setCustomDescription] = useState('')
@@ -95,11 +97,19 @@ export function WeekView({
     const id = ++searchId.current
     setAlternatives([])
     setSubstituteError(null)
+    setSubstituteDone(false)
     setSubstituting(true)
     substituteDish({ ...selected, currentWeek: { days, generatedAt: week.generatedAt }, schoolMenu, weekStart })
-      .then(result => { if (id === searchId.current) setAlternatives(result.alternatives) })
+      .then(async result => {
+        if (id !== searchId.current) return
+        // Como al generar la semana: la barra salta al 100% y se ve así un instante antes de pintar
+        // las alternativas.
+        setSubstituteDone(true)
+        await new Promise(resolve => setTimeout(resolve, 500))
+        if (id === searchId.current) setAlternatives(result.alternatives)
+      })
       .catch(error => { if (id === searchId.current) setSubstituteError(error instanceof ApiError ? error.message : 'No se han podido buscar alternativas.') })
-      .finally(() => { if (id === searchId.current) setSubstituting(false) })
+      .finally(() => { if (id === searchId.current) { setSubstituting(false); setSubstituteDone(false) } })
   }
   const closeDrawer = () => { searchId.current++; setSelected(null); resetCustom(); setAlternatives([]); setSubstituteError(null); setSubstituting(false) }
 
@@ -145,7 +155,7 @@ export function WeekView({
     <PrintMenu days={days} weekLabel={weekLabel} dateLabels={dateLabels} />
     {editable && <ResponsiveModal open={!!selected} onOpenChange={open => !open && closeDrawer()} title="Cambia este plato" description={<>Ahora: {selectedDish?.title ?? 'tu menú'}</>} footer={<Button variant="outline" onClick={closeDrawer}>Cancelar</Button>}>
       {!substituting && alternatives.length === 0 && <div className="flex flex-col gap-2 rounded-xl border border-slate-100 p-4"><p className="text-sm font-medium">Buscar alternativas</p><p className="text-xs text-slate-500">Te proponemos 3 platos que cumplen las reglas del menú, con la mejor receta para cada uno. Tarda unos segundos.</p><Button onClick={searchAlternatives} className="mt-1 gap-2 bg-emerald-600 hover:bg-emerald-700"><Search data-icon="inline-start" />Buscar alternativas</Button></div>}
-      {substituting && <div className="flex items-center gap-2 rounded-xl border border-slate-100 p-4 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin text-emerald-600" />Buscando alternativas y la mejor receta para cada una...</div>}
+      {substituting && <GenerationProgress done={substituteDone} expectedMs={EXPECTED_SUBSTITUTION_MS} title="Buscando alternativas" description="Proponiendo platos que cumplen las reglas y eligiendo la mejor receta para cada uno." className="" />}
       {substituteError && <Alert className="border-red-100 bg-red-50 text-red-800"><AlertCircle className="size-4" /><AlertDescription>{substituteError}</AlertDescription></Alert>}
       {!substituting && alternatives.map(alt => <button key={alt.title} onClick={() => replace(alt)} className="flex items-center gap-3 rounded-xl border border-slate-100 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50"><div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><Sparkles className="size-4" /></div><div className="min-w-0 flex-1"><p className="font-medium">{alt.title}</p>{!!alt.totalTimeMinutes && <p className="mt-0.5 text-xs text-slate-500">{alt.totalTimeMinutes} min</p>}</div><Badge className={sourceStyles[alt.sourceName] ?? ''} variant="outline">{alt.sourceName}</Badge></button>)}
       {!substituting && alternatives.length > 0 && <Button variant="ghost" size="sm" onClick={searchAlternatives} className="gap-2 self-start text-emerald-700"><Search data-icon="inline-start" />Buscar otras alternativas</Button>}
