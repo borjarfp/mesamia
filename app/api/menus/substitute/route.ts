@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
 import { getTasteContext } from '@/server/history/taste-context'
@@ -28,20 +29,22 @@ const RequestBodySchema = z.object({
 //   para ese día, pero el resto de reglas (límites semanales) se sigue aplicando igual.
 // Respuesta: { alternatives: FinalDish[], violations: RuleViolation[] }
 export async function POST(request: Request) {
-  try {
-    const body = await request.json().catch(() => {
-      throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
-    })
-    const parsed = RequestBodySchema.safeParse(body)
-    if (!parsed.success) {
-      throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
-    }
+  return withTestMode(request, async () => {
+    try {
+      const body = await request.json().catch(() => {
+        throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
+      })
+      const parsed = RequestBodySchema.safeParse(body)
+      if (!parsed.success) {
+        throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
+      }
 
-    const { weekStart, ...input } = parsed.data
-    const taste = await getTasteContext(weekStart)
-    const result = await substituteDish({ ...input, tasteContext: taste.text })
-    return NextResponse.json(result)
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+      const { weekStart, ...input } = parsed.data
+      const taste = await getTasteContext(weekStart)
+      const result = await substituteDish({ ...input, tasteContext: taste.text })
+      return NextResponse.json(result)
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }

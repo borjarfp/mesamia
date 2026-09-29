@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { ConfigError } from '../errors'
 import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
 import { createPostgresHistoryStore, databaseUrl } from './postgres-store'
+import { isTestMode } from '../test-mode'
 import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDatabase, type RecipeRow, type WeekMealRow } from '../db/tables'
 
 // Interfaz de persistencia del historial — deliberadamente pequeña e independiente de dónde vivan
@@ -26,24 +27,27 @@ export interface HistoryStore {
 // que allí se usa os.tmpdir() — que en serverless es efímero: esto NO es persistencia de producción.
 const DATA_DIR = process.env.MESAMIA_DATA_DIR ?? (process.env.VERCEL ? tmpdir() : join(process.cwd(), '.data'))
 const DATA_FILE = join(DATA_DIR, 'mesamia-db.json')
+// Modo pruebas (server/test-mode.ts): SIEMPRE este JSON aparte, aunque haya Postgres configurado —
+// las semanas de prueba nunca llegan a la BD real ni al histórico del que aprende la IA.
+const TEST_DATA_FILE = join(DATA_DIR, 'mesamia-db.pruebas.json')
 
-async function load(): Promise<LocalDatabase> {
+async function load(file: string): Promise<LocalDatabase> {
   try {
-    return LocalDatabaseSchema.parse(JSON.parse(await readFile(DATA_FILE, 'utf-8')))
+    return LocalDatabaseSchema.parse(JSON.parse(await readFile(file, 'utf-8')))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyDatabase()
     // Un fichero corrupto NO se trata como vacío: el siguiente guardado lo sobrescribiría y se
     // perdería todo el histórico. Mejor fallar y que se vea.
-    throw new Error(`No se ha podido leer la base de datos local (${DATA_FILE}): ${(error as Error).message}`)
+    throw new Error(`No se ha podido leer la base de datos local (${file}): ${(error as Error).message}`)
   }
 }
 
 // Escritura atómica (fichero temporal + rename): un proceso que muere a mitad no deja el JSON a medias.
-async function persist(db: LocalDatabase): Promise<void> {
+async function persist(file: string, db: LocalDatabase): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true })
-  const tmpFile = `${DATA_FILE}.${randomUUID()}.tmp`
+  const tmpFile = `${file}.${randomUUID()}.tmp`
   await writeFile(tmpFile, JSON.stringify(db, null, 2), 'utf-8')
-  await rename(tmpFile, DATA_FILE)
+  await rename(tmpFile, file)
 }
 
 // Las operaciones se encadenan una detrás de otra: dos guardados simultáneos leerían el mismo
@@ -109,21 +113,21 @@ function upsertRecipe(db: LocalDatabase, dish: FinalDish, now: string): string {
   return id
 }
 
-function createLocalRelationalHistoryStore(): HistoryStore {
+function createLocalRelationalHistoryStore(file = DATA_FILE): HistoryStore {
   return {
     async list() {
-      const db = await load()
+      const db = await load(file)
       return [...db.saved_weeks]
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .map(row => entryFromRows(db, row.id))
         .filter((entry): entry is HistoryEntry => entry !== null)
     },
     async get(id) {
-      return entryFromRows(await load(), id)
+      return entryFromRows(await load(file), id)
     },
     save(label, week, weekStart, changes = []) {
       return serialized(async () => {
-        const db = await load()
+        const db = await load(file)
         const now = new Date().toISOString()
         const weekId = randomUUID()
         db.saved_weeks.push({ id: weekId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now })
@@ -134,13 +138,13 @@ function createLocalRelationalHistoryStore(): HistoryStore {
             db.week_meals.push(row)
           }
         }
-        await persist(db)
+        await persist(file, db)
         return entryFromRows(db, weekId)!
       })
     },
     remove(id) {
       return serialized(async () => {
-        const db = await load()
+        const db = await load(file)
         if (!db.saved_weeks.some(row => row.id === id)) return false
         // ON DELETE CASCADE de week_meals. Y, a petición ("no quiero tener ese histórico"), también
         // se borran las recetas que usaba esa semana y ya no usa ninguna otra (con sus ingredientes y
@@ -151,7 +155,7 @@ function createLocalRelationalHistoryStore(): HistoryStore {
         db.recipes = db.recipes.filter(row => inUse.has(row.id))
         db.recipe_ingredients = db.recipe_ingredients.filter(row => inUse.has(row.recipe_id))
         db.recipe_steps = db.recipe_steps.filter(row => inUse.has(row.recipe_id))
-        await persist(db)
+        await persist(file, db)
         return true
       })
     },
@@ -171,4 +175,13 @@ function createHistoryStore(): HistoryStore {
   }
   return createLocalRelationalHistoryStore()
 }
-export const historyStore: HistoryStore = createHistoryStore()
+const defaultStore: HistoryStore = createHistoryStore()
+let testStore: HistoryStore | undefined
+
+// El store que toca en esta petición: el normal (Postgres o JSON), o el de pruebas si la petición
+// viene en modo pruebas. Siempre por aquí, nunca guardando una referencia fija al store, porque el
+// modo se decide por petición.
+export function getHistoryStore(): HistoryStore {
+  if (isTestMode()) return testStore ??= createLocalRelationalHistoryStore(TEST_DATA_FILE)
+  return defaultStore
+}

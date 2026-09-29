@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronLeft, Utensils } from 'lucide-react'
-import { historyStore } from '@/server/history/store'
+import { getHistoryStore } from '@/server/history/store'
+import { runWithTestMode } from '@/server/test-mode'
+import { TEST_MODE_PARAM } from '@/lib/test-mode-constants'
 import { PageShell } from '@/components/menu/page-shell'
 import { RulesPanel } from '@/components/menu/rules-panel'
 import { DeleteWeekButton } from '@/components/menu/delete-week-button'
@@ -17,9 +19,13 @@ export const runtime = 'nodejs'
 // generateStaticParams: las semanas guardadas se crean en tiempo de ejecución (al "Confirmar
 // planificación"), no se conocen en build time. Al ser un Server Component se lee el HistoryStore
 // directamente en proceso, sin llamar a la propia API por HTTP.
-export default async function SavedWeekPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const entry = await historyStore.get(slug)
+//
+// Modo pruebas: un Server Component no recibe la cabecera que pone lib/api.ts, así que se lee del
+// query param (?pruebas=1, que /guardados añade a sus enlaces en ese modo) para leer del store de
+// pruebas.
+export default async function SavedWeekPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [{ slug }, query] = await Promise.all([params, searchParams])
+  const entry = await runWithTestMode(query[TEST_MODE_PARAM] === '1', () => getHistoryStore().get(slug))
   if (!entry) notFound()
 
   const savedDate = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(entry.createdAt))

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { withTestMode } from '@/server/test-mode'
 import { toErrorResponse } from '@/server/http'
 import { ValidationError } from '@/server/errors'
 import { getTasteContext } from '@/server/history/taste-context'
@@ -24,19 +25,21 @@ const RequestBodySchema = z.object({
 // propuesta cumple todas las reglas; si no está vacío, es la mejor propuesta tras los reintentos
 // del Paso 2, con el detalle de qué no ha podido corregirse.
 export async function POST(request: Request) {
-  try {
-    const body = await request.json().catch(() => {
-      throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
-    })
-    const parsed = RequestBodySchema.safeParse(body)
-    if (!parsed.success) {
-      throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
-    }
+  return withTestMode(request, async () => {
+    try {
+      const body = await request.json().catch(() => {
+        throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
+      })
+      const parsed = RequestBodySchema.safeParse(body)
+      if (!parsed.success) {
+        throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
+      }
 
-    const taste = await getTasteContext(parsed.data.weekStart)
-    const { week, violations } = await generateFromSchoolMenu(parsed.data.schoolMenu, taste.text)
-    return NextResponse.json({ week, violations })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+      const taste = await getTasteContext(parsed.data.weekStart)
+      const { week, violations } = await generateFromSchoolMenu(parsed.data.schoolMenu, taste.text)
+      return NextResponse.json({ week, violations })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }

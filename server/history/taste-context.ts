@@ -1,5 +1,5 @@
 import { DAY_NAMES, type FinalDish, type HistoryEntry, type MealChange } from '../types'
-import { historyStore } from './store'
+import { getHistoryStore } from './store'
 
 // Contexto de gustos para el LLM: las N semanas guardadas ANTERIORES a la que se va a planificar,
 // en un texto pensado para que Gemini lo lea (no JSON: una línea por plato, con lo que importa).
@@ -73,6 +73,6 @@ export function buildTasteContext(entries: HistoryEntry[]): string {
 }
 
 export async function getTasteContext(weekStart?: string): Promise<TasteContext> {
-  const weeks = selectPreviousWeeks(await historyStore.list(), weekStart)
+  const weeks = selectPreviousWeeks(await getHistoryStore().list(), weekStart)
   return { weeks: weeks.map(({ id, label, weekStart }) => ({ id, label, weekStart })), text: buildTasteContext(weeks) }
 }

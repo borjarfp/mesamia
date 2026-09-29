@@ -1,6 +1,8 @@
 import { tavily, type TavilyClient } from '@tavily/core'
 import { getTavilyApiKey } from '../env'
 import { UpstreamApiError } from '../errors'
+import { isTestMode } from '../test-mode'
+import { fakeCookidooRecipeUrl, fakeExtractPages, fakeRecipeCandidates } from '../testing/fake-tavily'
 
 import { RECIPE_SOURCES, type RecipeSourceName } from './recipe-sources'
 
@@ -84,6 +86,7 @@ export const MAX_RECIPE_CANDIDATES = 3
 // que pase el filtro estricto. Elegir cuál es mejor (o ninguna) NO se hace aquí: ver
 // server/pipeline/step4-consolidate.ts.
 export async function searchRecipeCandidates(dishTitle: string, max = MAX_RECIPE_CANDIDATES): Promise<RecipeSearchHit[]> {
+  if (isTestMode()) return fakeRecipeCandidates(dishTitle).slice(0, max) // server/testing/fake-tavily.ts
   const client = getClient()
   let response
   try {
@@ -126,6 +129,7 @@ export async function searchRecipeCandidates(dishTitle: string, max = MAX_RECIPE
 // Primera URL de una receta de Cookidoo para el plato, o null. Sin contenido: se descarga luego en
 // bloque con extractPages().
 export async function searchCookidooRecipeUrl(dishTitle: string): Promise<string | null> {
+  if (isTestMode()) return fakeCookidooRecipeUrl(dishTitle)
   const client = getClient()
   let response
   try {
@@ -142,6 +146,7 @@ const MAX_EXTRACT_URLS = 20
 // Descarga el texto de varias páginas con el mínimo de llamadas (una por cada 20 URLs). Devuelve
 // solo las que se pudieron leer y traen contenido suficiente; las que fallan simplemente no están.
 export async function extractPages(urls: string[]): Promise<Map<string, string>> {
+  if (isTestMode()) return fakeExtractPages(urls)
   const client = getClient()
   const unique = [...new Set(urls)]
   const pages = new Map<string, string>()

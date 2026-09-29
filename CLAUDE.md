@@ -110,7 +110,7 @@ pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten co
   es la única forma de generar: **el botón "Probar con un menú de ejemplo" y su
   `EXAMPLE_SCHOOL_MENU` se quitaron a petición del usuario** (el estado vacío ya no ofrece ningún
   atajo; `generateFromSchoolMenu()` sigue en `lib/api.ts` como cliente de
-  `POST /api/menus/generate`, pero ninguna pantalla lo usa). Tarda **~1,9 min de media** con PDF reales (medido por el
+  `POST /api/menus/generate`, pero ninguna pantalla lo usa). **El botón está deshabilitado mientras no haya ningún archivo subido** (a petición), con una línea ámbar debajo que explica por qué ("Sube el menú del cole de al menos una niña…"), para que no parezca roto. `handleGenerate` mantiene su propia comprobación por si acaso. Tarda **~1,9 min de media** con PDF reales (medido por el
   usuario; sin el Paso 1, `/api/menus/generate` ronda 45-60s) y puede fallar (cuota, red, etc.),
   así que hay un `Alert` de error real. Mientras genera se muestra `GenerationProgress`
   (`components/menu/generation-progress.tsx`): una barra que avanza en lineal hasta
@@ -169,8 +169,12 @@ viernes" más abajo para por qué esto cambió respecto a una versión anterior 
 
 **Abrir "Cambiar" ya NO busca nada** (a petición: "que no vaya a buscar inmediatamente a las
 webs"). `openMeal()` solo abre el modal, que ofrece a la vez las dos formas de cambiar el plato:
-- Un botón **"Buscar alternativas"** (`searchAlternatives()` → `substituteDish()`, 15-40s, con
-  estado de carga). Cuando hay resultados, aparece "Buscar otras alternativas" para repetir.
+- Un botón **"Buscar alternativas"** (`searchAlternatives()` → `substituteDish()`). Cuando hay
+  resultados, aparece "Buscar otras alternativas" para repetir. Mientras busca se muestra **la
+  misma barra de progreso que al generar la semana** (`GenerationProgress`, ahora con
+  `expectedMs`/`title`/`description` configurables), calibrada a `EXPECTED_SUBSTITUTION_MS` = 60 s
+  (a petición: "en principio pon 1 min"; ajustarlo si el tiempo real se aleja). No pasa del 99%
+  hasta que responde, salta al 100% y se ve así 500 ms antes de pintar las alternativas.
 - Debajo de un `Separator`, el formulario libre "O escribe tu propio plato": título (obligatorio),
   descripción/receta (textarea, opcional; se muestra en "Ver receta" respetando saltos de línea) y
   URL de origen (opcional: redes sociales, blogs…; se valida y se le pone `https://` si falta). Es
@@ -244,7 +248,7 @@ pantalla.** Esto exigió dos arreglos en `@media print` (`globals.css`) más all
 Server component que ya **no** usa `generateStaticParams`: las semanas guardadas se crean en
 tiempo de ejecución (al "Confirmar planificación"), no se conocen en el momento del build. `slug`
 es el `id` real de un `HistoryEntry` (un UUID de `crypto.randomUUID()`, ver `server/history/store.ts`);
-como este componente corre en el servidor, lee `historyStore.get(slug)` **directamente en el mismo
+como este componente corre en el servidor, lee `getHistoryStore().get(slug)` **directamente en el mismo
 proceso** — no hace un `fetch` a su propia API por HTTP, sería una vuelta innecesaria. Un `slug` que
 no exista llama a `notFound()` (404). A propósito **no** lleva ni la tarjeta de subida ni el botón
 "Generar" — pedido explícito: una semana guardada se ve tal cual, sin la opción de añadir menús del
@@ -485,6 +489,43 @@ completa ganó solo en 1 de 14, porque Gemini planifica platos más elaborados (
 con picatostes", "Hummus con crudités") y la búsqueda de Cookidoo encuentra otro plato o ninguno.
 Es lo esperado, no un fallo.
 
+### Modo pruebas: sin Gemini ni Tavily (`?pruebas=1`)
+
+Sirve para seguir desarrollando sin gastar tokens ni créditos. Está oculto: se activa con
+`?pruebas=1` en la URL, se recuerda en `sessionStorage` para el resto de la pestaña y se desactiva
+con `?pruebas=0`. Mientras está activo se ve la pastilla "Modo pruebas · sin IA" abajo a la derecha
+(`TestModeBadge`, dentro de `PageShell`).
+
+- **Cómo llega al servidor**: `lib/api.ts` (`apiFetch`) añade la cabecera `x-mesamia-pruebas: 1`.
+  Cada ruta de `app/api/**` envuelve su handler en `withTestMode(request, …)`
+  (`server/test-mode.ts`, con `AsyncLocalStorage`), y dentro `isTestMode()` es `true` sin pasar un
+  flag por todo el pipeline. `/semana/[slug]` es un Server Component y no recibe esa cabecera: lee
+  `?pruebas=1` de `searchParams`, que `/guardados` añade a sus enlaces en ese modo.
+- **Qué se sustituye, y solo eso**: `generateStructured` (`server/clients/gemini.ts`) y las tres
+  funciones de `server/clients/tavily.ts` devuelven datos de `server/testing/fake-gemini.ts` y
+  `fake-tavily.ts`. **Todo lo demás corre igual**: motor de reglas con reintentos, restricciones
+  sobre la receta elegida, ensamblado, historial de gustos, aviso de fechas y guardado. La salida
+  del Gemini falso se valida con el mismo esquema zod.
+- **El Gemini falso no es aleatorio**: elige qué devolver según el esquema pedido (extracción,
+  planificación, alternativas o elección de receta). Lo que necesita (día, menú escolar, semana
+  actual…) lo lee del propio prompt con regex, así que **si se cambia el formato de
+  `server/prompts/*`, revisar `fake-gemini.ts`**.
+  - El planificador falso arma semanas que cumplen las reglas: probado, 0 violaciones.
+  - Las alternativas avanzan en cada "Buscar otras alternativas".
+  - La elección de receta reparte entre IA, Cookpad y Cookidoo, para probar también el enlace "Ver
+    los pasos en Cookidoo".
+  - Las URLs de Tavily falso son las **páginas de búsqueda** del plato en Cookpad/Cookidoo, que
+    existen; no son recetas inventadas.
+- **Historial aparte**: en modo pruebas, `getHistoryStore()` usa **siempre**
+  `.data/mesamia-db.pruebas.json`, aunque haya Postgres configurado. Las semanas de prueba nunca
+  llegan a Supabase ni al histórico real, ni la IA aprende gustos de ellas. Por eso ya no existe el
+  singleton `historyStore`: siempre se pide `getHistoryStore()`, porque el modo se decide por
+  petición.
+- **Probado**: la semana se genera en ~1,5-2,5 s (frente a ~1,9 min) con 0 violaciones. Se
+  comprobó que guardar en modo pruebas deja la BD real idéntica byte a byte (md5), que Guardados y
+  el historial de gustos no se mezclan entre modos, y el recorrido completo en Chrome (activar,
+  generar, confirmar, Guardados, abrir la semana, desactivar).
+
 ### Historial de gustos: la IA aprende de las 3 semanas anteriores (`server/history/taste-context.ts`)
 
 A petición: *"cuando el LLM analice la semana que tiene que crear, vea las 3 semanas anteriores
@@ -682,7 +723,12 @@ lectura (0 "Cambiar") y que el plato sustituido antes de confirmar es el que que
   - `app/layout.tsx`: `viewport.colorScheme` es `'light'` (no `'light dark'`) y `themeColor` es un
     único `'white'` (no un array por media query). El icono también es uno solo
     (`icon-light-32x32.png` + el SVG); `public/icon-dark-32x32.png` se quedó sin usar en el repo,
-    no hace falta borrarlo pero tampoco referenciarlo desde ningún sitio nuevo.
+    no hace falta borrarlo pero tampoco referenciarlo desde ningún sitio nuevo. **El favicon es el
+    logo de la cabecera** (a petición): `public/icon.svg` reproduce `AppHeader` con los paths de
+    `Utensils` de lucide, cuadrado de 36 con `rx=12` y `#009966` (= `emerald-600` de Tailwind v4,
+    que se define en oklch). `icon-light-32x32.png` y `apple-icon.png` (180, cuadrado entero
+    sin esquinas porque iOS pone su máscara) se renderizaron desde ese SVG con Chrome headless. Si
+    cambia el logo de la cabecera, regenerar los tres.
 - **Impresión**: `globals.css` tiene un `@media print` cuidado (A4, oculta tabs y botones, evita
   cortes con `break-inside: avoid`). `PrintMenu` es `hidden print:block` — es la versión que se
   imprime, distinta de las tarjetas de pantalla. Si cambias una, cambia la otra.

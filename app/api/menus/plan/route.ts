@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { withTestMode } from '@/server/test-mode'
 import { getTasteContext } from '@/server/history/taste-context'
 import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
 import { planFullWeek } from '@/server/pipeline/orchestrator'
@@ -18,15 +19,17 @@ export const runtime = 'nodejs'
 // a planificar). El historial de gustos (las 3 semanas guardadas anteriores a esa, ver
 // server/history/taste-context.ts) lo añade el servidor solo; sin weekStart, las 3 más recientes.
 export async function POST(request: Request) {
-  try {
-    const formData = await request.formData()
-    const uploads = await parseSchoolMenuUploads(formData)
-    const weekStart = parseWeekStartField(formData)
+  return withTestMode(request, async () => {
+    try {
+      const formData = await request.formData()
+      const uploads = await parseSchoolMenuUploads(formData)
+      const weekStart = parseWeekStartField(formData)
 
-    const taste = await getTasteContext(weekStart)
-    const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text, weekStart)
-    return NextResponse.json({ schoolMenu, week, violations })
-  } catch (error) {
-    return toErrorResponse(error)
-  }
+      const taste = await getTasteContext(weekStart)
+      const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text, weekStart)
+      return NextResponse.json({ schoolMenu, week, violations })
+    } catch (error) {
+      return toErrorResponse(error)
+    }
+  })
 }
