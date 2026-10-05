@@ -191,6 +191,7 @@ function fakeRecipeSelection(prompt: string): z.infer<typeof RecipeSelectionSche
   const title = prompt.match(/Plato planificado: "(.+?)" \((\w+),/)
   const day = (title?.[2] ?? 'sabado') as DayName
   const ingredients = prompt.match(/Ingredientes principales previstos: (.*?)\. Categoría/)?.[1].split(', ') ?? []
+  const people = Number(prompt.match(/Personas que comen: (\d+)/)?.[1] ?? 1)
   const candidates = [...prompt.matchAll(/--- Candidata (\d+) \((.+?), /g)]
   // Reparte según el título entre receta propia, la primera candidata (Cookpad) y la última
   // (Cookidoo, que va al final), para que en pruebas salgan los tres caminos — incluido el de
@@ -203,7 +204,8 @@ function fakeRecipeSelection(prompt: string): z.infer<typeof RecipeSelectionSche
     reason: 'Elección de prueba (modo pruebas, sin IA).',
     title: title?.[1] ?? 'Plato de prueba',
     description: 'Receta de prueba generada sin IA para seguir desarrollando.',
-    ingredients: [...ingredients, 'aceite de oliva', 'sal'],
+    // Receta propia ("ia"): con cantidades para las personas del día, como pide el prompt real.
+    ingredients: choice === 'ia' ? [...ingredients.map(name => `${100 * people} g de ${name}`), `${people} cucharada${people === 1 ? '' : 's'} de aceite de oliva`, '1 pizca de sal'] : [...ingredients, 'aceite de oliva', 'sal'],
     steps: ['Prepara y corta los ingredientes.', 'Cocina a fuego medio hasta que esté listo.', 'Sirve y ajusta de sal al gusto.'],
     totalTimeMinutes: isWeekday(day) ? 25 : 45,
     difficulty: 'facil',

@@ -10,3 +10,9 @@ export const MIN_LEGUMBRE = 4
 // el motor de reglas rechaza lo que pase de 50 (server/rules/restrictions.ts).
 export const TARGET_WEEKDAY_MINUTES = 40
 export const MAX_WEEKDAY_MINUTES = 50
+
+// Cuántas personas comen cada día (comida y cena): lunes a jueves 1, viernes 2, sábado y domingo 4.
+// Pedido por el usuario. Se usa para las cantidades de las recetas de la IA y para la lista de la
+// compra. Es una constante pura (sin zod) para poder importarla también desde el cliente.
+export const PEOPLE_BY_DAY = { lunes: 1, martes: 1, miercoles: 1, jueves: 1, viernes: 2, sabado: 4, domingo: 4 } as const
+export const peopleLabel = (people: number) => `${people} ${people === 1 ? 'persona' : 'personas'}`

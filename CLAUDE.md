@@ -269,6 +269,12 @@ persona de lunes a jueves, 2 el viernes, 4 sábado y domingo (a petición; se ap
   confirmar para no alargar el guardado ni perderlo si Gemini falla.
 - **BD**: `postgres-store.ts` hace `ALTER TABLE ... ADD COLUMN IF NOT EXISTS shopping_list` una vez
   por proceso (el `db:migrate` solo vale para una BD vacía). `schema.sql` ya la incluye.
+- **Cantidades en las recetas de la IA**: `PEOPLE_BY_DAY` vive en `server/rules/constants.ts` (pura, la
+  importa también el cliente). El Paso 4 (`recipeConsolidation.ts`) recibe "Personas que comen: N" y,
+  si elige `'ia'`, escribe cada ingrediente con cantidad para esas personas ("200 g de lentejas",
+  "1 cebolla"); las recetas web siguen sin cantidades. `DayCard` las pinta como lista con "Cantidades
+  para N personas". La lista de la compra suma las que ya traen cantidad sin reescalarlas.
+  Las semanas guardadas antes no las tienen. Los platos escritos a mano tampoco (solo descripción).
 - Modo pruebas: `fake-gemini.ts` devuelve una lista falsa (lee el formato del prompt).
 
 ### Fuentes de un plato y estilos (`lib/menu-data.ts`)

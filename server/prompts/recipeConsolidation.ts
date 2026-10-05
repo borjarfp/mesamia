@@ -1,6 +1,7 @@
 import type { RecipeSearchHit } from '../clients/tavily'
 import type { PlannedDish } from '../types'
 import { WEEKDAYS } from '../types'
+import { PEOPLE_BY_DAY, peopleLabel } from '../rules/constants'
 import { FAMILY_RESTRICTION_LINES } from './weekPlanning'
 
 // Paso 4: para UN plato planificado, elegir la mejor receta entre las candidatas web que encontró
@@ -24,7 +25,7 @@ export function buildRecipeSelectionSystemInstruction(): string {
     '- Si eliges "ia": escribe tu propia receta del plato planificado, realista para cocinar en casa.',
     '- title: título corto del plato (sin el nombre del sitio web ni texto de relleno).',
     '- description: una sola frase que resuma el plato de forma atractiva.',
-    '- ingredients: la lista COMPLETA de ingredientes, en minúsculas y sin cantidades (se usa para comprobar ingredientes no permitidos, no omitas ninguno).',
+    '- ingredients: la lista COMPLETA de ingredientes, en minúsculas (se usa para comprobar ingredientes no permitidos, no omitas ninguno). Si eliges una candidata web, SIN cantidades. Si eliges "ia", CON la cantidad de cada ingrediente calculada para las personas que se indican en el plato planificado, en el formato "cantidad unidad de ingrediente" ("200 g de lentejas", "1 cebolla", "2 dientes de ajo", "1 cucharada de aceite de oliva", "1 pizca de sal"); cantidades realistas para esa ración y sin repetir ingredientes. Los pasos de tu receta también deben corresponder a esas cantidades.',
     '- steps: de 3 a 6 pasos breves (una frase cada uno) de cómo se hace, en orden. Si es web, resume fielmente los pasos de la página; si es "ia", los de tu receta. Si eliges una de Cookidoo (sin pasos en la página), devuelve steps vacío: no te inventes los pasos de una receta de Thermomix.',
     '- totalTimeMinutes: tiempo total en minutos (el que indique la página si es web; si no lo indica, estímalo de forma realista).',
     '- difficulty: facil, media o dificil (ídem).',
@@ -39,7 +40,7 @@ const MAX_CANDIDATE_CHARS = 3500
 export function buildRecipeSelectionUserPrompt(dish: PlannedDish, candidates: RecipeSearchHit[]): string {
   const when = WEEKDAYS.includes(dish.day) ? 'de lunes a viernes: tiene que ser fácil y rápida' : 'fin de semana: sin límite de tiempo ni dificultad'
   const parts = [
-    `Plato planificado: "${dish.title}" (${dish.day}, ${dish.meal} — ${when}).`,
+    `Plato planificado: "${dish.title}" (${dish.day}, ${dish.meal} — ${when}). Personas que comen: ${peopleLabel(PEOPLE_BY_DAY[dish.day])}.`,
     `Ingredientes principales previstos: ${dish.mainIngredients.join(', ')}. Categoría de proteína: ${dish.proteinCategory}.`,
   ]
   if (candidates.length === 0) {
