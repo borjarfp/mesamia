@@ -255,6 +255,22 @@ no exista llama a `notFound()` (404). A propósito **no** lleva ni la tarjeta de
 cole (eso es solo de `/planificador`). Solo un enlace "Volver" a `/guardados` + el
 `<WeekView editable={false} badgeLabel="Histórico">` de esa semana.
 
+### Lista de la compra y pestañas del detalle (`components/menu/saved-week-tabs.tsx`)
+
+`/semana/[slug]` tiene dos pestañas (estado local, mismo aspecto que `TabNav`): **"Menú semanal"**
+(`RulesPanel` + `WeekView` de solo lectura) y **"Lista de la compra"** (`ShoppingListView`). La lista
+cubre comida **y** cena de los 7 días con `PEOPLE_BY_DAY` (`server/prompts/shoppingList.ts`): 1
+persona de lunes a jueves, 2 el viernes, 4 sábado y domingo (a petición; se aplica a las dos comidas).
+- Una llamada a Gemini Flash (`server/pipeline/shopping-list.ts`) suma los ingredientes (que no
+  llevan cantidades) y devuelve `ShoppingList` (`items` con `name`, `quantity`, `category`).
+- **Se genera la primera vez que se abre la pestaña** (`POST /api/history/[id]/shopping-list`, con
+  `GenerationProgress`) y se guarda (`HistoryStore.setShoppingList`, columna `saved_weeks.shopping_list
+  jsonb`, `HistoryEntry.shoppingList`); las siguientes veces llega ya en la entrada. No se genera al
+  confirmar para no alargar el guardado ni perderlo si Gemini falla.
+- **BD**: `postgres-store.ts` hace `ALTER TABLE ... ADD COLUMN IF NOT EXISTS shopping_list` una vez
+  por proceso (el `db:migrate` solo vale para una BD vacía). `schema.sql` ya la incluye.
+- Modo pruebas: `fake-gemini.ts` devuelve una lista falsa (lee el formato del prompt).
+
 ### Fuentes de un plato y estilos (`lib/menu-data.ts`)
 
 Ya no hay tipos ni datos de una semana propios del frontend — `FinalDish`/`FinalDayPlan`/`WeekPlan`

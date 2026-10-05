@@ -5,6 +5,7 @@ import {
   ChildSchoolMenuSchema,
   PLANNED_SLOTS,
   RecipeSelectionSchema,
+  ShoppingListSchema,
   WEEKDAYS,
   WeekPlanDraftSchema,
   type AlternativeDish,
@@ -212,6 +213,16 @@ function fakeRecipeSelection(prompt: string): z.infer<typeof RecipeSelectionSche
 // --- Punto de entrada ----------------------------------------------------------------------------
 
 // Un pequeño retraso para que en pruebas se vean los estados de carga (spinner, barra de progreso).
+// Lista de la compra de mentira: un ingrediente por cada nombre distinto del prompt, con la cantidad
+// proporcional a las personas de cada plato (lee el formato de server/prompts/shoppingList.ts).
+function fakeShoppingList(prompt: string): z.infer<typeof ShoppingListSchema> {
+  const totals = new Map<string, number>()
+  for (const [, people, ingredients] of prompt.matchAll(/\((\d+) personas?\): .*? — ingredientes: (.*)/g)) {
+    for (const name of ingredients.startsWith('no indicados') ? [] : ingredients.split(',').map(item => item.trim()).filter(Boolean)) totals.set(name, (totals.get(name) ?? 0) + Number(people))
+  }
+  return { items: [...totals].map(([name, people]) => ({ name, quantity: `${people * 100} g`, category: 'Otros' as const })) }
+}
+
 const FAKE_LATENCY_MS = 400
 
 export async function fakeGenerateStructured(schema: z.ZodType, systemInstruction: string | undefined, prompt: string): Promise<unknown> {
@@ -220,5 +231,6 @@ export async function fakeGenerateStructured(schema: z.ZodType, systemInstructio
   if (schema === WeekPlanDraftSchema) return fakeWeekPlan(prompt)
   if (schema === AlternativesDraftSchema) return fakeAlternatives(prompt, Number(systemInstruction?.match(/exactamente (\d+) alternativas/)?.[1] ?? 3))
   if (schema === RecipeSelectionSchema) return fakeRecipeSelection(prompt)
+  if (schema === ShoppingListSchema) return fakeShoppingList(prompt)
   throw new Error('Modo pruebas: no hay datos de prueba para este esquema de Gemini. Añádelos en server/testing/fake-gemini.ts.')
 }

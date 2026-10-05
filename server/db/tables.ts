@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealChangeKindSchema, MealSlotSchema, ProteinCategorySchema, type FinalDish } from '../types'
+import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealChangeKindSchema, MealSlotSchema, ProteinCategorySchema, ShoppingListSchema, type FinalDish } from '../types'
 
 // Espejo en TypeScript/zod de las tablas de server/db/schema.sql — mismos nombres de tabla y de
 // columna (snake_case), para que pasar del JSON local a una BD real sea cambiar el almacenamiento,
@@ -12,6 +12,8 @@ export const SavedWeekRowSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   generated_at: z.string(),
   created_at: z.string(),
+  // JSON de ShoppingList; NULL hasta que se genera. .default: ficheros anteriores no lo traen.
+  shopping_list: ShoppingListSchema.nullable().default(null),
 })
 export type SavedWeekRow = z.infer<typeof SavedWeekRowSchema>
 

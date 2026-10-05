@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConfigError } from '../errors'
-import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
+import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type ShoppingList, type WeekPlan } from '../types'
 import { createPostgresHistoryStore, databaseUrl } from './postgres-store'
 import { isTestMode } from '../test-mode'
 import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDatabase, type RecipeRow, type WeekMealRow } from '../db/tables'
@@ -16,6 +16,7 @@ export interface HistoryStore {
   get(id: string): Promise<HistoryEntry | null>
   save(label: string, week: WeekPlan, weekStart?: string, changes?: MealChange[]): Promise<HistoryEntry>
   remove(id: string): Promise<boolean>
+  setShoppingList(id: string, list: ShoppingList): Promise<boolean>
 }
 
 // Implementación local: las tablas relacionales de server/db/schema.sql (saved_weeks, recipes,
@@ -96,7 +97,7 @@ function entryFromRows(db: LocalDatabase, weekId: string): HistoryEntry | null {
     const row = meals.find(item => item.day === day && item.meal === meal)
     return row?.proposed_title && row.change_kind ? [{ day, meal, proposedTitle: row.proposed_title, kind: row.change_kind }] : []
   }))
-  return { id: week.id, label: week.label, createdAt: week.created_at, ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at }, changes }
+  return { id: week.id, label: week.label, createdAt: week.created_at, ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at }, changes, ...(week.shopping_list ? { shoppingList: week.shopping_list } : {}) }
 }
 
 // --- HistoryEntry → filas -----------------------------------------------------------------------
@@ -130,7 +131,7 @@ function createLocalRelationalHistoryStore(file = DATA_FILE): HistoryStore {
         const db = await load(file)
         const now = new Date().toISOString()
         const weekId = randomUUID()
-        db.saved_weeks.push({ id: weekId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now })
+        db.saved_weeks.push({ id: weekId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now, shopping_list: null })
         for (const day of week.days) {
           for (const meal of ['comida', 'cena'] as const) {
             const change = changes.find(item => item.day === day.day && item.meal === meal)
@@ -140,6 +141,16 @@ function createLocalRelationalHistoryStore(file = DATA_FILE): HistoryStore {
         }
         await persist(file, db)
         return entryFromRows(db, weekId)!
+      })
+    },
+    setShoppingList(id, list) {
+      return serialized(async () => {
+        const db = await load(file)
+        const week = db.saved_weeks.find(row => row.id === id)
+        if (!week) return false
+        week.shopping_list = list
+        await persist(file, db)
+        return true
       })
     },
     remove(id) {
@@ -171,7 +182,7 @@ function createHistoryStore(): HistoryStore {
   if (process.env.VERCEL) {
     // Falla al usarlo, no al importar el módulo: si no, `next build` se rompería sin variables.
     const fail = () => Promise.reject(new ConfigError('Falta DATABASE_URL (o POSTGRES_URL) en las variables de entorno de Vercel: sin ella el historial no se puede guardar.'))
-    return { list: fail, get: fail, save: fail, remove: fail }
+    return { list: fail, get: fail, save: fail, remove: fail, setShoppingList: fail }
   }
   return createLocalRelationalHistoryStore()
 }

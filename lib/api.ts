@@ -1,4 +1,4 @@
-import type { DayName, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, WeekPlan } from '@/server/types'
+import type { DayName, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, ShoppingList, WeekPlan } from '@/server/types'
 import { testModeHeaders } from '@/lib/test-mode'
 
 // Cliente HTTP del frontend hacia app/api/**. Cada función hace exactamente una llamada y devuelve
@@ -89,5 +89,11 @@ export async function deleteHistoryEntry(id: string): Promise<void> {
 // GET /api/history/context — qué semanas anteriores (y en qué texto) verá la IA al planificar.
 export async function getTasteContext(weekStart?: string): Promise<{ weeks: Array<{ id: string; label: string; weekStart?: string }>; text: string; instructions: string }> {
   const response = await apiFetch(`/api/history/context${weekStart ? `?weekStart=${weekStart}` : ''}`, { cache: 'no-store' })
+  return parseOrThrow(response)
+}
+
+// POST /api/history/[id]/shopping-list — la lista de la compra de una semana guardada (la genera la primera vez; con `regenerate` la rehace).
+export async function getShoppingList(id: string, regenerate = false): Promise<{ shoppingList: ShoppingList }> {
+  const response = await apiFetch(`/api/history/${encodeURIComponent(id)}/shopping-list${regenerate ? '?regenerate=1' : ''}`, { method: 'POST' })
   return parseOrThrow(response)
 }

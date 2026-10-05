@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
-import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type WeekPlan } from '../types'
+import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type ShoppingList, type WeekPlan } from '../types'
 import { recipeFingerprint } from '../db/tables'
 import type { HistoryStore } from './store'
 
@@ -19,7 +19,7 @@ function getPool(): Pool {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-type WeekRecord = { id: string; label: string; week_start: string | null; generated_at: Date; created_at: Date }
+type WeekRecord = { id: string; label: string; week_start: string | null; generated_at: Date; created_at: Date; shopping_list: ShoppingList | null }
 type MealRecord = { week_id: string; day: FinalDayPlan['day']; meal: MealSlot; proposed_title: string | null; change_kind: 'alternativa' | 'manual' | null; recipe_id: string; title: string; description: string; protein_category: FinalDish['proteinCategory']; source_kind: FinalDish['sourceKind']; source_name: string; source_url: string | null; total_time_minutes: number | null; difficulty: FinalDish['difficulty'] | null }
 
 // Lee las semanas pedidas con sus 14 huecos, recetas, ingredientes y pasos (4 consultas, sin N+1).
@@ -59,11 +59,11 @@ async function loadEntries(weeks: WeekRecord[]): Promise<HistoryEntry[]> {
       return comida && cena ? [{ day, comida: dishOf(comida), cena: dishOf(cena) }] : []
     })
     const changes: MealChange[] = own.flatMap(meal => meal.proposed_title && meal.change_kind ? [{ day: meal.day, meal: meal.meal, proposedTitle: meal.proposed_title, kind: meal.change_kind }] : [])
-    return { id: week.id, label: week.label, createdAt: week.created_at.toISOString(), ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at.toISOString() }, changes }
+    return { id: week.id, label: week.label, createdAt: week.created_at.toISOString(), ...(week.week_start ? { weekStart: week.week_start } : {}), week: { days, generatedAt: week.generated_at.toISOString() }, changes, ...(week.shopping_list ? { shoppingList: week.shopping_list } : {}) }
   })
 }
 
-const WEEK_COLUMNS = 'id, label, week_start::text AS week_start, generated_at, created_at'
+const WEEK_COLUMNS = 'id, label, week_start::text AS week_start, generated_at, created_at, shopping_list'
 
 // Devuelve el id de la receta, reutilizando la fila si ya existe una con el mismo contenido.
 async function upsertRecipe(client: PoolClient, dish: FinalDish): Promise<string> {
@@ -96,14 +96,21 @@ async function inTransaction<T>(task: (client: PoolClient) => Promise<T>): Promi
   }
 }
 
+// La columna shopping_list se añadió después de crear las tablas (pnpm db:migrate solo vale para una
+// BD vacía), así que se asegura aquí, una vez por proceso. Es idempotente.
+let shoppingColumn: Promise<unknown> | undefined
+const ensureShoppingColumn = () => shoppingColumn ??= getPool().query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS shopping_list jsonb').catch(error => { shoppingColumn = undefined; throw error })
+
 export function createPostgresHistoryStore(): HistoryStore {
   return {
     async list() {
+      await ensureShoppingColumn()
       const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks ORDER BY created_at DESC`)
       return loadEntries(rows)
     },
     async get(id) {
       if (!UUID.test(id)) return null
+      await ensureShoppingColumn()
       const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks WHERE id = $1`, [id])
       return (await loadEntries(rows))[0] ?? null
     },
@@ -119,6 +126,12 @@ export function createPostgresHistoryStore(): HistoryStore {
         }
       })
       return (await this.get(weekId))!
+    },
+    async setShoppingList(id, list) {
+      if (!UUID.test(id)) return false
+      await ensureShoppingColumn()
+      const { rowCount } = await getPool().query('UPDATE saved_weeks SET shopping_list = $2::jsonb WHERE id = $1', [id, JSON.stringify(list)])
+      return !!rowCount
     },
     async remove(id) {
       if (!UUID.test(id)) return false

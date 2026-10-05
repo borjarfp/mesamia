@@ -186,6 +186,21 @@ export const MealChangeSchema = z.object({
 })
 export type MealChange = z.infer<typeof MealChangeSchema>
 
+// Lista de la compra de una semana guardada (se genera con Gemini a partir de los ingredientes de
+// los 14 platos y de cuántas personas comen cada día, ver server/prompts/shoppingList.ts).
+export const SHOPPING_CATEGORIES = ['Frutas y verduras', 'Carne y pescado', 'Huevos y lácteos', 'Legumbres, pasta y arroz', 'Pan y cereales', 'Despensa', 'Otros'] as const
+export const ShoppingCategorySchema = z.enum(SHOPPING_CATEGORIES)
+export const ShoppingItemSchema = z.object({
+  name: z.string().describe('Ingrediente en singular o plural natural, sin cantidad, p. ej. "pechuga de pollo"'),
+  quantity: z.string().describe('Cantidad total para toda la semana con su unidad, p. ej. "600 g", "3 unidades", "1 manojo"'),
+  category: ShoppingCategorySchema,
+})
+export const ShoppingListSchema = z.object({
+  items: z.array(ShoppingItemSchema),
+})
+export type ShoppingItem = z.infer<typeof ShoppingItemSchema>
+export type ShoppingList = z.infer<typeof ShoppingListSchema>
+
 export const HistoryEntrySchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -194,5 +209,7 @@ export const HistoryEntrySchema = z.object({
   week: WeekPlanSchema,
   // Opcional: las semanas guardadas antes de registrar cambios no lo tienen.
   changes: z.array(MealChangeSchema).optional(),
+  // Se genera la primera vez que se abre la pestaña "Lista de la compra" y se guarda; antes, ausente.
+  shoppingList: ShoppingListSchema.optional(),
 })
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

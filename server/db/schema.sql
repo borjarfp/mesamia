@@ -24,7 +24,8 @@ CREATE TABLE saved_weeks (
   label         text        NOT NULL,              -- "5 — 11 octubre", tal como se mostró al guardar
   week_start    date,                              -- lunes de la semana planificada (NULL en guardados antiguos)
   generated_at  timestamptz NOT NULL,              -- cuándo generó la IA la propuesta
-  created_at    timestamptz NOT NULL DEFAULT now() -- cuándo se confirmó/guardó
+  created_at    timestamptz NOT NULL DEFAULT now(), -- cuándo se confirmó/guardó
+  shopping_list jsonb                              -- lista de la compra (ShoppingList); NULL hasta que se genera
 );
 CREATE INDEX saved_weeks_created_at_idx ON saved_weeks (created_at DESC);
 CREATE INDEX saved_weeks_week_start_idx ON saved_weeks (week_start);

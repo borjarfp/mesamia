@@ -5,9 +5,8 @@ import { getHistoryStore } from '@/server/history/store'
 import { runWithTestMode } from '@/server/test-mode'
 import { TEST_MODE_PARAM } from '@/lib/test-mode-constants'
 import { PageShell } from '@/components/menu/page-shell'
-import { RulesPanel } from '@/components/menu/rules-panel'
 import { DeleteWeekButton } from '@/components/menu/delete-week-button'
-import { WeekView } from '@/components/menu/week-view'
+import { SavedWeekTabs } from '@/components/menu/saved-week-tabs'
 
 export const runtime = 'nodejs'
 
@@ -39,8 +38,7 @@ export default async function SavedWeekPage({ params, searchParams }: { params: 
       <p className="mt-1 text-sm text-slate-500">Guardada el {savedDate}</p>
     </header>
     <div className="flex-1 px-5 pb-10 sm:px-8 lg:px-12 xl:px-16 2xl:px-24">
-      <RulesPanel note="Son las reglas actuales: si esta semana se guardó antes de añadir alguna, puede no cumplirla." />
-      <WeekView week={entry.week} weekLabel={entry.label} title="Menú de esta semana" subtitle="Así fue la semana que guardasteis." editable={false} badgeLabel="Histórico" />
+      <SavedWeekTabs entry={entry} />
     </div>
   </PageShell>
 }
