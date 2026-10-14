@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import { ChevronLeft, Lock } from 'lucide-react'
-import { SESSION_COOKIE, verifySessionToken } from '@/server/auth/session'
+import { FAMILY_COOKIE, requireSessionForPage, resolveFamilies } from '@/server/auth/family'
+import { FamiliesManager } from '@/components/menu/families-manager'
 import { Input } from '@/components/ui/input'
 import { PageShell } from '@/components/menu/page-shell'
 import { ProfileMenu } from '@/components/menu/profile-menu'
@@ -11,8 +11,8 @@ import { ProfileMenu } from '@/components/menu/profile-menu'
 // sesión), no hay nada que guardar en base de datos porque no se pueden modificar. proxy.ts ya
 // exige sesión; el redirect es por si la cookie caducara entre la comprobación y el render.
 export default async function ProfilePage() {
-  const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value)
-  if (!session) redirect('/login')
+  const session = await requireSessionForPage()
+  const { families, active } = await resolveFamilies(session, (await cookies()).get(FAMILY_COOKIE)?.value)
   const initial = (session.name || session.email).charAt(0).toUpperCase()
 
   return <PageShell>
@@ -23,7 +23,7 @@ export default async function ProfilePage() {
       <p className="mt-1 text-sm text-slate-500">Los datos con los que has iniciado sesión.</p>
     </header>
     <div className="flex-1 px-5 pb-10 sm:px-8">
-      <div className="max-w-md space-y-6">
+      <div className="max-w-2xl space-y-10"><div className="max-w-md space-y-6">
         <div className="flex items-center gap-4">
           {session.picture
             // eslint-disable-next-line @next/next/no-img-element
@@ -36,6 +36,8 @@ export default async function ProfilePage() {
           <label className="block space-y-1.5"><span className="text-sm font-medium text-slate-700">Correo electrónico</span><Input readOnly value={session.email} className="bg-slate-50 text-slate-600" /></label>
         </div>
         <p className="flex items-start gap-2 text-sm text-slate-500"><Lock className="mt-0.5 size-4 shrink-0" />Estos datos vienen de tu cuenta de Google y no se pueden modificar aquí.</p>
+      </div>
+        <section className="space-y-4"><div><h2 className="text-xl font-semibold tracking-tight">Familias</h2><p className="text-sm text-slate-500">Las semanas guardadas son de cada familia. Aquí puedes cambiar su nombre, quién tiene acceso y crear nuevas.</p></div><FamiliesManager initialFamilies={families} activeId={active?.id ?? null} myEmail={session.email} /></section>
       </div>
     </div>
   </PageShell>

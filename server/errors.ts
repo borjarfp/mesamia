@@ -36,3 +36,20 @@ export class UpstreamApiError extends Error {
     this.cause_ = cause
   }
 }
+
+// Sin sesión válida (cookie ausente, caducada o manipulada) → 401.
+export class UnauthorizedError extends Error {
+  constructor(message = 'Inicia sesión para continuar.') {
+    super(message)
+    this.name = 'UnauthorizedError'
+  }
+}
+
+// Hay sesión pero ninguna familia activa (tiene varias y no ha elegido) → 409. El cliente reacciona
+// llevando al selector de familia.
+export class FamilyRequiredError extends Error {
+  constructor(message = 'Elige una familia para continuar.') {
+    super(message)
+    this.name = 'FamilyRequiredError'
+  }
+}

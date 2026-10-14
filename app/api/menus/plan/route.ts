@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { getTasteContext } from '@/server/history/taste-context'
 import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
       const uploads = await parseSchoolMenuUploads(formData)
       const weekStart = parseWeekStartField(formData)
 
-      const taste = await getTasteContext(weekStart)
+      const { family } = await requireFamily(request)
+      const taste = await getTasteContext(family.id, weekStart)
       const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text, weekStart)
       return NextResponse.json({ schoolMenu, week, violations })
     } catch (error) {

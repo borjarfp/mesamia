@@ -135,6 +135,20 @@ curl -X POST http://localhost:3000/api/menus/substitute \
 
 Respuesta: `{ alternatives: FinalDish[], violations: RuleViolation[] }`.
 
+### Familias
+
+Las semanas guardadas son de una **familia**; una persona (correo de Google) puede estar en varias.
+Todas las rutas de historial y de generación (`/api/history/**`, `/api/menus/plan|generate|substitute`)
+actúan sobre la **familia activa** y responden `409 family_required` si hay varias y no se ha elegido
+ninguna (`401 unauthorized` sin sesión). La activa es la de la cookie `mesamia_family`, comprobada en
+cada petición contra la BD (hay que seguir siendo miembro), o la única que se tenga.
+
+- `GET /api/families` → `{ families: Family[], activeId: string | null }`. Si la persona no tiene ninguna, se le crea "Mi familia".
+- `POST /api/families` con `{ name }` → `{ family }` (201), con quien la crea como único miembro. No la activa.
+- `PATCH /api/families/[id]` con `{ name, members: string[] }` → `{ family }`. Solo se edita el nombre y los correos con acceso (lista completa). No te puedes quitar a ti mismo. 404 si no eres miembro.
+- `DELETE /api/families/[id]` → 204. Borra la familia **para todos sus miembros**, con sus semanas y recetas huérfanas. 400 si es la única de la persona.
+- `POST /api/families/select` con `{ familyId }` → `{ family }` y guarda la cookie. 404 si no eres miembro.
+
 ### Historial
 
 - `GET /api/history` → `{ entries: HistoryEntry[] }`, más reciente primero.

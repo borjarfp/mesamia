@@ -4,7 +4,8 @@ import { getHistoryStore } from './store'
 // Contexto de gustos para el LLM: las N semanas guardadas ANTERIORES a la que se va a planificar,
 // en un texto pensado para que Gemini lo lea (no JSON: una línea por plato, con lo que importa).
 // Se construye en el momento a partir del histórico real (HistoryStore) — no es un fichero aparte
-// que mantener sincronizado: borrar o guardar una semana cambia el contexto al instante.
+// que mantener sincronizado: borrar o guardar una semana cambia el contexto al instante. Solo cuenta
+// las semanas de la familia activa: los gustos de una familia no se mezclan con los de otra.
 //
 // La señal más útil no son los platos en sí, sino lo que la familia CAMBIÓ antes de confirmar
 // (MealChange): qué propuso la IA y si lo sustituyó por una alternativa o escribiendo su propio
@@ -72,7 +73,7 @@ export function buildTasteContext(entries: HistoryEntry[]): string {
   return entries.map(formatWeekForLlm).join('\n\n')
 }
 
-export async function getTasteContext(weekStart?: string): Promise<TasteContext> {
-  const weeks = selectPreviousWeeks(await getHistoryStore().list(), weekStart)
+export async function getTasteContext(familyId: string, weekStart?: string): Promise<TasteContext> {
+  const weeks = selectPreviousWeeks(await getHistoryStore().list(familyId), weekStart)
   return { weeks: weeks.map(({ id, label, weekStart }) => ({ id, label, weekStart })), text: buildTasteContext(weeks) }
 }

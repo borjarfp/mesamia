@@ -6,8 +6,25 @@ import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealChangeKindSc
 // columna (snake_case), para que pasar del JSON local a una BD real sea cambiar el almacenamiento,
 // no el modelo. Si se toca una tabla aquí, tocarla también en schema.sql (y viceversa).
 
+export const FamilyRowSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  created_at: z.string(),
+})
+export type FamilyRow = z.infer<typeof FamilyRowSchema>
+
+export const FamilyMemberRowSchema = z.object({
+  family_id: z.string().uuid(),
+  email: z.string(),
+  created_at: z.string(),
+})
+export type FamilyMemberRow = z.infer<typeof FamilyMemberRowSchema>
+
 export const SavedWeekRowSchema = z.object({
   id: z.string().uuid(),
+  // Familia dueña de la semana. NULL solo en semanas guardadas antes de existir las familias: las
+  // adopta la primera familia que se crea (ver server/families/).
+  family_id: z.string().uuid().nullable().default(null),
   label: z.string(),
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   generated_at: z.string(),
@@ -61,6 +78,9 @@ export type WeekMealRow = z.infer<typeof WeekMealRowSchema>
 // La "base de datos" local completa: una lista de filas por tabla.
 export const LocalDatabaseSchema = z.object({
   schema_version: z.literal(1),
+  // .default([]): ficheros escritos antes de existir las familias no las traen.
+  families: z.array(FamilyRowSchema).default([]),
+  family_members: z.array(FamilyMemberRowSchema).default([]),
   saved_weeks: z.array(SavedWeekRowSchema),
   recipes: z.array(RecipeRowSchema),
   recipe_ingredients: z.array(RecipeIngredientRowSchema),
@@ -70,7 +90,7 @@ export const LocalDatabaseSchema = z.object({
 })
 export type LocalDatabase = z.infer<typeof LocalDatabaseSchema>
 
-export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
+export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, families: [], family_members: [], saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
 
 // Clave única de una receta (columna recipes.fingerprint): hash de TODO su contenido, así un plato
 // idéntico reutiliza la fila y cualquier diferencia (otra descripción, otro ingrediente) es otra

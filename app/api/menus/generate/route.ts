@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { toErrorResponse } from '@/server/http'
 import { ValidationError } from '@/server/errors'
@@ -35,7 +36,8 @@ export async function POST(request: Request) {
         throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
       }
 
-      const taste = await getTasteContext(parsed.data.weekStart)
+      const { family } = await requireFamily(request)
+      const taste = await getTasteContext(family.id, parsed.data.weekStart)
       const { week, violations } = await generateFromSchoolMenu(parsed.data.schoolMenu, taste.text)
       return NextResponse.json({ week, violations })
     } catch (error) {

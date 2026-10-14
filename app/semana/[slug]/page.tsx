@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronLeft, Utensils } from 'lucide-react'
+import { requireFamilyForPage } from '@/server/auth/family'
 import { getHistoryStore } from '@/server/history/store'
 import { runWithTestMode } from '@/server/test-mode'
 import { TEST_MODE_PARAM } from '@/lib/test-mode-constants'
@@ -25,7 +26,9 @@ export const runtime = 'nodejs'
 // pruebas.
 export default async function SavedWeekPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const [{ slug }, query] = await Promise.all([params, searchParams])
-  const entry = await runWithTestMode(query[TEST_MODE_PARAM] === '1', () => getHistoryStore().get(slug))
+  const { family } = await requireFamilyForPage()
+  // Solo semanas de la familia activa: el id de otra familia da 404 igual que uno inexistente.
+  const entry = await runWithTestMode(query[TEST_MODE_PARAM] === '1', () => getHistoryStore().get(family.id, slug))
   if (!entry) notFound()
 
   const savedDate = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(entry.createdAt))

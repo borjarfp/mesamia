@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
@@ -40,7 +41,8 @@ export async function POST(request: Request) {
       }
 
       const { weekStart, ...input } = parsed.data
-      const taste = await getTasteContext(weekStart)
+      const { family } = await requireFamily(request)
+      const taste = await getTasteContext(family.id, weekStart)
       const result = await substituteDish({ ...input, tasteContext: taste.text })
       return NextResponse.json(result)
     } catch (error) {

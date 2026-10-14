@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
@@ -10,11 +11,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // GET /api/history
-// Lista las semanas guardadas, más recientes primero.
+// Lista las semanas guardadas de la familia activa, más recientes primero.
 export async function GET(request: Request) {
   return withTestMode(request, async () => {
     try {
-      const entries = await getHistoryStore().list()
+      const { family } = await requireFamily(request)
+      const entries = await getHistoryStore().list(family.id)
       return NextResponse.json({ entries })
     } catch (error) {
       return toErrorResponse(error)
@@ -35,6 +37,7 @@ const SaveBodySchema = z.object({
 export async function POST(request: Request) {
   return withTestMode(request, async () => {
     try {
+      const { family } = await requireFamily(request)
       const body = await request.json().catch(() => {
         throw new ValidationError('El cuerpo de la petición debe ser JSON válido.')
       })
@@ -43,7 +46,7 @@ export async function POST(request: Request) {
         throw new ValidationError('El cuerpo no tiene la forma esperada.', parsed.error.issues)
       }
 
-      const entry = await getHistoryStore().save(parsed.data.label, parsed.data.week, parsed.data.weekStart, parsed.data.changes)
+      const entry = await getHistoryStore().save(family.id, parsed.data.label, parsed.data.week, parsed.data.weekStart, parsed.data.changes)
       return NextResponse.json({ entry }, { status: 201 })
     } catch (error) {
       return toErrorResponse(error)

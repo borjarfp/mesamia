@@ -10,7 +10,7 @@ Estado actual: **la app funciona de verdad, de punta a punta**. El frontend (`ap
 generación ni datos mock de una semana fija — se probó el circuito completo con claves reales:
 subir/generar → sustituir un plato → confirmar y guardar → verlo en Guardados → abrir esa semana
 guardada de solo lectura. Hay inicio de sesión con Google (ver "Autenticación"), pero sigue siendo un
-prototipo de un único hogar: los datos no son por usuario — ver "Qué falta si esto pasa a producción" al final.
+prototipo: los datos son por **familia** (no por usuario) — ver "Familias" y "Qué falta si esto pasa a producción" al final.
 
 ## Stack
 
@@ -73,6 +73,7 @@ public/                iconos e imágenes placeholder
 app/api/**/route.ts    Endpoints del backend real — ver sección "Backend". El frontend SÍ los usa.
 app/perfil/page.tsx    Perfil de solo lectura (nombre/correo de Google). Menú: components/menu/profile-menu.tsx.
 app/login/page.tsx     Pantalla de inicio de sesión (botón "Continuar con Google"). Ver "Autenticación".
+app/familias/seleccionar/  Selector de familia. Lógica y reglas: sección "Familias" (server/families/, app/api/families/**).
 app/api/auth/**        Login/callback de Google y logout. proxy.ts (raíz) es la puerta de todas las rutas.
 server/auth/           session.ts (JWT en cookie, jose) y google.ts (OAuth code + PKCE).
 docs/arquitectura.md   4 diagramas Mermaid (arquitectura, pipeline, recorrido del usuario, modelo de
@@ -125,7 +126,7 @@ pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten co
   **`DayCard` ya no lleva el badge "Cole"/"Fin de semana"** (a petición: "no aporta nada"), así que
   `isWeekendDay()` se eliminó.
 - **`/guardados`** — `useEffect` en el montaje llama a `listHistory()` (`GET /api/history`) y pinta
-  lo que devuelva de verdad; hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
+  las semanas **de la familia activa** (ver "Familias"; `app/guardados/layout.tsx` exige familia); hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
   (`<Button render={<Link .../>} nativeButton={false}>` — ver el gotcha de `nativeButton` más
   abajo) — siempre, ya no hay un caso "Ver deshabilitado". **Cada fila tiene además una papelera**
   (`DeleteWeekButton compact`, `components/menu/delete-week-button.tsx`). Pide confirmación con
@@ -360,7 +361,7 @@ su propia API.
 ### Autenticación (login con Google)
 
 Pedido: solo pantalla de login con Google + que no se pueda entrar a ninguna página sin sesión. Los
-datos **no** son por usuario (decisión de momento): el login solo decide quién entra.
+datos **no** son por usuario: el login decide quién entra y las semanas son de la familia (ver "Familias").
 
 - **Sin librería de auth** (ni Auth.js): flujo "authorization code" + PKCE escrito a mano en
   `server/auth/google.ts`; `jose` firma la sesión y valida el `id_token` de Google (JWKS remoto:
@@ -402,6 +403,54 @@ datos **no** son por usuario (decisión de momento): el login solo decide quién
   lee `.env.local` al arrancar: reiniciar `pnpm dev` tras cambiarlo.
 - **Probado** con curl y un token firmado (páginas, API, cookie falsa, `/login` con sesión, logout,
   `state` incorrecto). **El login completo contra Google real no se probó en esa sesión.**
+
+### Familias (`server/families/`, `app/api/families/**`)
+
+Pedido: una persona puede tener una o más familias y **las semanas guardadas van dentro de la familia**.
+Al entrar se elige familia (o, con una sola, se usa esa). Todo lo de semanas es de la familia activa.
+
+- **Modelo**: `families` (id, name) + `family_members` (family_id, email; PK ambos) y
+  `saved_weeks.family_id` (FK, `ON DELETE CASCADE`). **No hay tabla de usuarios**: la identidad es el
+  correo de la sesión (en minúsculas). `recipes` sigue siendo un catálogo global compartido y
+  direccionado por contenido; al borrar una familia se limpian las recetas huérfanas igual que al borrar
+  una semana. Está en `schema.sql`, `tables.ts` (`families`, `family_members`) y `docs/arquitectura.md`.
+- **Migración automática**: como con `shopping_list`, `pnpm db:migrate` solo vale para BD vacía; en
+  Postgres `ensureSchema()` (`server/history/postgres-store.ts`, una vez por proceso, con
+  `pg_advisory_xact_lock`, todo `IF NOT EXISTS`) crea las tablas y la columna. **La primera petición con
+  una BD existente aplica el DDL** (aditivo, no borra nada). **Semanas antiguas** (`family_id` NULL): las
+  adopta la primera familia que se crea en toda la BD (`ensureForUser`, dentro de un lock global). Si una
+  BD tuviera semanas con `family_id` NULL y ya familias, quedarían invisibles.
+- **`FamilyStore`** (`server/families/store.ts`, JSON local + `postgres-store.ts`): `listForUser`,
+  `ensureForUser` (crea "Mi familia" si no tiene ninguna: siempre hay ≥1), `create`, `update` (nombre +
+  lista completa de miembros), `remove`. **Las familias son siempre las reales, también en modo
+  pruebas**; solo las semanas se separan (`mesamia-db.pruebas.json`, con el `family_id` real).
+- **Familia activa** (`server/auth/family.ts`): cookie `mesamia_family` (httpOnly, id de familia) o, si
+  solo hay una, esa. **La cookie no es de confianza**: `resolveFamilies` la contrasta con la BD en cada
+  petición. `requireFamily(request)` (rutas API: 401 `unauthorized` / 409 `family_required`) y
+  `requireFamilyForPage()` (Server Components: redirige a `/familias/seleccionar`). Todos los métodos de
+  `HistoryStore` reciben `familyId` (una semana de otra familia es un 404, no un 403), y
+  `getTasteContext(familyId, weekStart)` solo ve las semanas de esa familia: **los gustos no se mezclan**.
+  `parseOrThrow` (`lib/api.ts`) manda al selector ante un 409 `family_required`. El logout borra también
+  esa cookie: al volver a entrar con varias familias hay que elegir otra vez.
+- **Puertas**: `app/planificador/layout.tsx` y `app/guardados/layout.tsx` (solo llaman a
+  `requireFamilyForPage`; una soft-navigation dentro del mismo layout no lo repite, por eso la
+  comprobación de verdad está en cada endpoint), y `/semana/[slug]`.
+- **UI**: `/familias/seleccionar` (`FamilyPicker`; con una sola familia redirige directo a
+  `/planificador`, salvo `?cambiar=1`), y en `/perfil` la sección "Familias" (`FamiliesManager`): por
+  familia editar nombre y correos con acceso (se guarda con "Guardar cambios"), "Usar esta familia",
+  "Borrar familia" (confirmación; deshabilitado si es la única) y "Nueva familia". `ProfileMenu` muestra la
+  familia activa y "Cambiar de familia" (solo con ≥2). Selección con navegación completa
+  (`location.assign`), no soft, para no arrastrar datos de otra familia.
+- **Reglas**: solo se edita nombre y miembros; no puedes quitarte a ti mismo (evita quedarte sin acceso);
+  **borrar una familia la borra para todos sus miembros** y sus semanas; siempre hay que conservar ≥1
+  propia (si a otra persona le dejas sin ninguna, se le crea "Mi familia" vacía al entrar).
+  `AUTH_ALLOWED_EMAILS` sigue mandando en el login: añadir a alguien a una familia no le deja entrar si su
+  correo no está en esa lista (si está vacía, entra cualquier cuenta de Google).
+- **Probado** (store JSON local, BD temporal, API con curl y tokens firmados): auto-creación, adopción de
+  semanas antiguas, aislamiento entre familias y personas, 404 a semanas/familias ajenas, 409 con varias
+  sin elegir, cookie falsa, validaciones (correo, nombre, quitarse a uno mismo), borrado con limpieza de
+  semanas y recetas, redirecciones de páginas y logout. **No probado**: la implementación Postgres (no hay
+  Postgres local) ni la UI en un navegador (desplegable, tarjetas de familia).
 
 ### Variables de entorno — nunca hardcodear claves
 
@@ -612,7 +661,8 @@ nunca lo rellenaba, y al guardar una semana no quedaba rastro de lo que se habí
   (`changes`) y en BD son las columnas `week_meals.proposed_title` + `change_kind` (ambas NULL =
   aceptado tal cual). Las semanas guardadas antes de esto no tienen cambios y cuentan como "todo
   aceptado".
-- **Qué ve el LLM**: `getTasteContext(weekStart)` elige las 3 semanas guardadas **estrictamente
+- **Qué ve el LLM**: `getTasteContext(familyId, weekStart)` elige, **solo entre las semanas de la familia
+  activa** (nunca se mezcla contexto entre familias, ni hacia Gemini ni hacia Tavily), las 3 semanas guardadas **estrictamente
   anteriores** a la que se planifica (si una semana se guardó varias veces, cuenta la última) y
   las formatea en texto, una línea por plato: "aceptado tal cual" / "CAMBIADO: la IA había
   propuesto X" / "ESCRITO A MANO …". `TASTE_CONTEXT_INSTRUCTIONS` le dice cómo interpretarlo: lo
@@ -680,15 +730,20 @@ tocarla.
 ### Historial (`server/history/store.ts`)
 
 Interfaz `HistoryStore` pequeña a propósito, para poder cambiar la implementación sin tocar rutas
-ni pipeline. Modelo relacional en `server/db/schema.sql` (DDL de PostgreSQL, hoy no se ejecuta en ningún
+ni pipeline. **Todos sus métodos reciben `familyId`** (`list(familyId)`, `get(familyId, id)`,
+`save(familyId, …)`, `remove`, `setShoppingList`): una semana solo existe dentro de su familia, y pedir
+una de otra da `null`/404. Ver "Familias". Modelo relacional en `server/db/schema.sql` (DDL de PostgreSQL, hoy no se ejecuta en ningún
 sitio) y su espejo zod en `server/db/tables.ts`, con los mismos nombres de tabla y columna:
 
 ```
-saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
-                                             1 ──< recipe_steps
+families 1 ──< family_members
+families 1 ──< saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+                                                            1 ──< recipe_steps
 ```
 
-- `saved_weeks`: una fila por semana confirmada (`label`, `week_start` = lunes de la semana
+- `families` / `family_members`: quién accede a cada familia (por correo). Detalle en "Familias".
+
+- `saved_weeks`: una fila por semana confirmada de una familia (`family_id`, `label`, `week_start` = lunes de la semana
   elegida en el planificador, `generated_at`, `created_at`).
 - `week_meals`: los 14 huecos de cada semana (PK `week_id, day, meal`) → `recipe_id`.
 - `recipes`: catálogo de recetas compartido entre semanas, **inmutable y direccionado por
@@ -876,9 +931,10 @@ verlo en Guardados → abrir esa semana guardada de solo lectura. Lo que sigue f
 real, no ya de prototipo:
 
 - **Persistencia**: ya resuelta con Supabase (ver "Historial"). Falta solo configurar `DATABASE_URL` en Vercel.
-- Gestión de familias/niños y datos por usuario. Ya hay login con Google (ver "Autenticación"), pero
-  el historial sigue siendo una única lista global compartida por quien consiga entrar. Mientras
-  `AUTH_ALLOWED_EMAILS` esté vacío, entra cualquier cuenta de Google.
+- Gestión de niños (Aina e Iria siguen fijas en el código) y roles/invitaciones en las familias. Ya hay
+  login con Google (ver "Autenticación") y familias (ver "Familias"), pero cualquier miembro puede editar
+  o borrar la familia, y añadir a alguien es solo escribir su correo (sin invitación ni aceptación).
+  Mientras `AUTH_ALLOWED_EMAILS` esté vacío, entra cualquier cuenta de Google.
 - **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se
   retoca con dos botones-pastilla dentro del chip (ver "Rutas" arriba) — funciona, pero es la
   mínima UI posible para el contrato del backend (un campo de formulario por niña), no un diseño

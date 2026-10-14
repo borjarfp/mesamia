@@ -11,7 +11,7 @@ import type { HistoryStore } from './store'
 export const databaseUrl = () => process.env.DATABASE_URL || process.env.POSTGRES_URL
 
 let pool: Pool | undefined
-function getPool(): Pool {
+export function getPool(): Pool {
   // Se quita la query de la URL (sslmode, supa, pgbouncer…): pg interpreta sslmode como verify-full y el certificado del pooler de Supabase no encadena; el SSL se fija abajo.
   pool ??= new Pool({ connectionString: databaseUrl()!.split('?')[0], ssl: { rejectUnauthorized: false }, max: 3 })
   return pool
@@ -81,7 +81,7 @@ async function upsertRecipe(client: PoolClient, dish: FinalDish): Promise<string
   return id
 }
 
-async function inTransaction<T>(task: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function inTransaction<T>(task: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await getPool().connect()
   try {
     await client.query('BEGIN')
@@ -96,28 +96,42 @@ async function inTransaction<T>(task: (client: PoolClient) => Promise<T>): Promi
   }
 }
 
-// La columna shopping_list se añadió después de crear las tablas (pnpm db:migrate solo vale para una
-// BD vacía), así que se asegura aquí, una vez por proceso. Es idempotente.
-let shoppingColumn: Promise<unknown> | undefined
-const ensureShoppingColumn = () => shoppingColumn ??= getPool().query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS shopping_list jsonb').catch(error => { shoppingColumn = undefined; throw error })
+// Lo que se añadió después de crear las tablas (pnpm db:migrate solo vale para una BD vacía) se
+// asegura aquí, una vez por proceso, y es idempotente (todo IF NOT EXISTS): la columna shopping_list y
+// las familias (tablas families/family_members + saved_weeks.family_id). Lo mismo que schema.sql para
+// una BD nueva. El lock evita que dos instancias arranquen a la vez creando las mismas tablas.
+let schemaReady: Promise<unknown> | undefined
+export const ensureSchema = () => schemaReady ??= inTransaction(async client => {
+  await client.query('SELECT pg_advisory_xact_lock(727271)')
+  await client.query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS shopping_list jsonb')
+  await client.query('CREATE TABLE IF NOT EXISTS families (id uuid PRIMARY KEY, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())')
+  await client.query('CREATE TABLE IF NOT EXISTS family_members (family_id uuid NOT NULL REFERENCES families (id) ON DELETE CASCADE, email text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (family_id, email))')
+  await client.query('CREATE INDEX IF NOT EXISTS family_members_email_idx ON family_members (email)')
+  await client.query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS family_id uuid REFERENCES families (id) ON DELETE CASCADE')
+  await client.query('CREATE INDEX IF NOT EXISTS saved_weeks_family_id_idx ON saved_weeks (family_id, created_at DESC)')
+  await client.query('ALTER TABLE families ENABLE ROW LEVEL SECURITY')
+  await client.query('ALTER TABLE family_members ENABLE ROW LEVEL SECURITY')
+}).catch(error => { schemaReady = undefined; throw error })
 
 export function createPostgresHistoryStore(): HistoryStore {
   return {
-    async list() {
-      await ensureShoppingColumn()
-      const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks ORDER BY created_at DESC`)
+    async list(familyId) {
+      if (!UUID.test(familyId)) return []
+      await ensureSchema()
+      const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks WHERE family_id = $1 ORDER BY created_at DESC`, [familyId])
       return loadEntries(rows)
     },
-    async get(id) {
-      if (!UUID.test(id)) return null
-      await ensureShoppingColumn()
-      const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks WHERE id = $1`, [id])
+    async get(familyId, id) {
+      if (!UUID.test(id) || !UUID.test(familyId)) return null
+      await ensureSchema()
+      const { rows } = await getPool().query<WeekRecord>(`SELECT ${WEEK_COLUMNS} FROM saved_weeks WHERE id = $1 AND family_id = $2`, [id, familyId])
       return (await loadEntries(rows))[0] ?? null
     },
-    async save(label, week: WeekPlan, weekStart, changes = []) {
+    async save(familyId, label, week: WeekPlan, weekStart, changes = []) {
       const weekId = randomUUID()
+      await ensureSchema()
       await inTransaction(async client => {
-        await client.query('INSERT INTO saved_weeks (id, label, week_start, generated_at) VALUES ($1, $2, $3, $4)', [weekId, label, weekStart ?? null, week.generatedAt])
+        await client.query('INSERT INTO saved_weeks (id, family_id, label, week_start, generated_at) VALUES ($1, $2, $3, $4, $5)', [weekId, familyId, label, weekStart ?? null, week.generatedAt])
         for (const day of week.days) {
           for (const meal of ['comida', 'cena'] as const) {
             const change = changes.find(item => item.day === day.day && item.meal === meal)
@@ -125,18 +139,19 @@ export function createPostgresHistoryStore(): HistoryStore {
           }
         }
       })
-      return (await this.get(weekId))!
+      return (await this.get(familyId, weekId))!
     },
-    async setShoppingList(id, list) {
-      if (!UUID.test(id)) return false
-      await ensureShoppingColumn()
-      const { rowCount } = await getPool().query('UPDATE saved_weeks SET shopping_list = $2::jsonb WHERE id = $1', [id, JSON.stringify(list)])
+    async setShoppingList(familyId, id, list) {
+      if (!UUID.test(id) || !UUID.test(familyId)) return false
+      await ensureSchema()
+      const { rowCount } = await getPool().query('UPDATE saved_weeks SET shopping_list = $3::jsonb WHERE id = $1 AND family_id = $2', [id, familyId, JSON.stringify(list)])
       return !!rowCount
     },
-    async remove(id) {
-      if (!UUID.test(id)) return false
+    async remove(familyId, id) {
+      if (!UUID.test(id) || !UUID.test(familyId)) return false
+      await ensureSchema()
       return inTransaction(async client => {
-        const { rowCount } = await client.query('DELETE FROM saved_weeks WHERE id = $1', [id])
+        const { rowCount } = await client.query('DELETE FROM saved_weeks WHERE id = $1 AND family_id = $2', [id, familyId])
         if (!rowCount) return false
         // Recetas que ninguna otra semana usa (sus ingredientes y pasos caen por CASCADE).
         await client.query('DELETE FROM recipes r WHERE NOT EXISTS (SELECT 1 FROM week_meals m WHERE m.recipe_id = r.id)')

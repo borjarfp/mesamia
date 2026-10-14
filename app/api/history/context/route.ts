@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { getTasteContext, TASTE_CONTEXT_INSTRUCTIONS } from '@/server/history/taste-context'
@@ -15,9 +16,10 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   return withTestMode(request, async () => {
     try {
+      const { family } = await requireFamily(request)
       const weekStart = new URL(request.url).searchParams.get('weekStart') ?? undefined
       if (weekStart && !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new ValidationError('"weekStart" debe tener el formato YYYY-MM-DD.')
-      const taste = await getTasteContext(weekStart)
+      const taste = await getTasteContext(family.id, weekStart)
       return NextResponse.json({ ...taste, instructions: TASTE_CONTEXT_INSTRUCTIONS })
     } catch (error) {
       return toErrorResponse(error)

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { NotFoundError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
@@ -13,8 +14,9 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function GET(request: Request, { params }: RouteContext) {
   return withTestMode(request, async () => {
     try {
+      const { family } = await requireFamily(request)
       const { id } = await params
-      const entry = await getHistoryStore().get(id)
+      const entry = await getHistoryStore().get(family.id, id)
       if (!entry) throw new NotFoundError(`No existe ninguna semana guardada con id "${id}".`)
       return NextResponse.json({ entry })
     } catch (error) {
@@ -27,8 +29,9 @@ export async function GET(request: Request, { params }: RouteContext) {
 export async function DELETE(request: Request, { params }: RouteContext) {
   return withTestMode(request, async () => {
     try {
+      const { family } = await requireFamily(request)
       const { id } = await params
-      const removed = await getHistoryStore().remove(id)
+      const removed = await getHistoryStore().remove(family.id, id)
       if (!removed) throw new NotFoundError(`No existe ninguna semana guardada con id "${id}".`)
       return new NextResponse(null, { status: 204 })
     } catch (error) {

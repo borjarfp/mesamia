@@ -4,7 +4,8 @@
 -- DATABASE_URL. Sin ella, server/history/store.ts guarda las mismas tablas en un JSON local.
 -- Aplicar con: pnpm db:migrate
 --
---   saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
+--   families 1 ──< family_members
+--   families 1 ──< saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
 --                                              1 ──< recipe_steps
 --
 -- Una semana guardada tiene 14 week_meals (comida + cena × 7 días); cada uno apunta a una receta.
@@ -18,9 +19,29 @@ CREATE TYPE dish_source_kind AS ENUM ('ia', 'web');
 CREATE TYPE recipe_difficulty AS ENUM ('facil', 'media', 'dificil');
 CREATE TYPE meal_change_kind AS ENUM ('alternativa', 'manual');
 
+-- Familias: grupo de personas que comparten las semanas guardadas. Una persona (correo de Google)
+-- puede estar en varias familias. No hay tabla de usuarios: la identidad es el correo de la sesión.
+-- Editar una familia = cambiar su nombre y quién tiene acceso (family_members). Borrar una familia
+-- borra sus semanas (CASCADE) y, como al borrar una semana, la app limpia las recetas huérfanas.
+CREATE TABLE families (
+  id          uuid        PRIMARY KEY,
+  name        text        NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Quién puede acceder a cada familia. `email` va siempre en minúsculas.
+CREATE TABLE family_members (
+  family_id   uuid        NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  email       text        NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (family_id, email)
+);
+CREATE INDEX family_members_email_idx ON family_members (email);
+
 -- Una semana confirmada con "Confirmar planificación".
 CREATE TABLE saved_weeks (
   id            uuid        PRIMARY KEY,
+  family_id     uuid        REFERENCES families (id) ON DELETE CASCADE, -- NULL: guardado antes de las familias (lo adopta la primera familia)
   label         text        NOT NULL,              -- "5 — 11 octubre", tal como se mostró al guardar
   week_start    date,                              -- lunes de la semana planificada (NULL en guardados antiguos)
   generated_at  timestamptz NOT NULL,              -- cuándo generó la IA la propuesta
@@ -29,6 +50,7 @@ CREATE TABLE saved_weeks (
 );
 CREATE INDEX saved_weeks_created_at_idx ON saved_weeks (created_at DESC);
 CREATE INDEX saved_weeks_week_start_idx ON saved_weeks (week_start);
+CREATE INDEX saved_weeks_family_id_idx ON saved_weeks (family_id, created_at DESC);
 
 -- Catálogo de recetas que han aparecido en alguna semana guardada.
 -- Inmutables y direccionadas por contenido: `fingerprint` es un hash de todo su contenido
@@ -92,6 +114,8 @@ CREATE INDEX week_meals_recipe_id_idx ON week_meals (recipe_id);
 -- Supabase expone el esquema `public` por PostgREST con la clave anon (que va en el cliente). La app
 -- accede solo desde el servidor con la conexión Postgres directa (rol postgres, que se salta RLS),
 -- así que se activa RLS SIN políticas: la clave anon no puede leer ni escribir nada.
+ALTER TABLE families           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE family_members     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE saved_weeks        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipe_ingredients ENABLE ROW LEVEL SECURITY;

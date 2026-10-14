@@ -12,11 +12,11 @@ import { emptyDatabase, LocalDatabaseSchema, recipeFingerprint, type LocalDataba
 // los datos, para poder sustituir la implementación de abajo por una base de datos real (Postgres,
 // Supabase...) sin tocar ni las rutas ni el resto del pipeline.
 export interface HistoryStore {
-  list(): Promise<HistoryEntry[]>
-  get(id: string): Promise<HistoryEntry | null>
-  save(label: string, week: WeekPlan, weekStart?: string, changes?: MealChange[]): Promise<HistoryEntry>
-  remove(id: string): Promise<boolean>
-  setShoppingList(id: string, list: ShoppingList): Promise<boolean>
+  list(familyId: string): Promise<HistoryEntry[]>
+  get(familyId: string, id: string): Promise<HistoryEntry | null>
+  save(familyId: string, label: string, week: WeekPlan, weekStart?: string, changes?: MealChange[]): Promise<HistoryEntry>
+  remove(familyId: string, id: string): Promise<boolean>
+  setShoppingList(familyId: string, id: string, list: ShoppingList): Promise<boolean>
 }
 
 // Implementación local: las tablas relacionales de server/db/schema.sql (saved_weeks, recipes,
@@ -27,12 +27,12 @@ export interface HistoryStore {
 // reinicios en local). En Vercel el filesystem del despliegue es de solo lectura salvo /tmp, así
 // que allí se usa os.tmpdir() — que en serverless es efímero: esto NO es persistencia de producción.
 const DATA_DIR = process.env.MESAMIA_DATA_DIR ?? (process.env.VERCEL ? tmpdir() : join(process.cwd(), '.data'))
-const DATA_FILE = join(DATA_DIR, 'mesamia-db.json')
+export const DATA_FILE = join(DATA_DIR, 'mesamia-db.json')
 // Modo pruebas (server/test-mode.ts): SIEMPRE este JSON aparte, aunque haya Postgres configurado —
 // las semanas de prueba nunca llegan a la BD real ni al histórico del que aprende la IA.
 const TEST_DATA_FILE = join(DATA_DIR, 'mesamia-db.pruebas.json')
 
-async function load(file: string): Promise<LocalDatabase> {
+export async function load(file: string): Promise<LocalDatabase> {
   try {
     return LocalDatabaseSchema.parse(JSON.parse(await readFile(file, 'utf-8')))
   } catch (error) {
@@ -44,7 +44,7 @@ async function load(file: string): Promise<LocalDatabase> {
 }
 
 // Escritura atómica (fichero temporal + rename): un proceso que muere a mitad no deja el JSON a medias.
-async function persist(file: string, db: LocalDatabase): Promise<void> {
+export async function persist(file: string, db: LocalDatabase): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true })
   const tmpFile = `${file}.${randomUUID()}.tmp`
   await writeFile(tmpFile, JSON.stringify(db, null, 2), 'utf-8')
@@ -54,7 +54,7 @@ async function persist(file: string, db: LocalDatabase): Promise<void> {
 // Las operaciones se encadenan una detrás de otra: dos guardados simultáneos leerían el mismo
 // fichero y el segundo pisaría al primero. (Una BD real lo resuelve con transacciones.)
 let queue: Promise<unknown> = Promise.resolve()
-function serialized<T>(task: () => Promise<T>): Promise<T> {
+export function serialized<T>(task: () => Promise<T>): Promise<T> {
   const run = queue.then(task, task)
   queue = run.catch(() => undefined)
   return run
@@ -114,24 +114,39 @@ function upsertRecipe(db: LocalDatabase, dish: FinalDish, now: string): string {
   return id
 }
 
+// Borra las semanas que cumplen `shouldRemove` (sus huecos caen por CASCADE) y, a petición ("no quiero
+// tener ese histórico"), también las recetas que ya no usa ninguna otra semana, con sus ingredientes y
+// pasos; las que comparte con otra semana guardada se quedan. Ver schema.sql. Lo usan borrar una
+// semana y borrar una familia entera.
+export function deleteWeeksWhere(db: LocalDatabase, shouldRemove: (week: LocalDatabase['saved_weeks'][number]) => boolean): void {
+  const removed = new Set(db.saved_weeks.filter(shouldRemove).map(row => row.id))
+  db.saved_weeks = db.saved_weeks.filter(row => !removed.has(row.id))
+  db.week_meals = db.week_meals.filter(row => !removed.has(row.week_id))
+  const inUse = new Set(db.week_meals.map(row => row.recipe_id))
+  db.recipes = db.recipes.filter(row => inUse.has(row.id))
+  db.recipe_ingredients = db.recipe_ingredients.filter(row => inUse.has(row.recipe_id))
+  db.recipe_steps = db.recipe_steps.filter(row => inUse.has(row.recipe_id))
+}
+
 function createLocalRelationalHistoryStore(file = DATA_FILE): HistoryStore {
   return {
-    async list() {
+    async list(familyId) {
       const db = await load(file)
-      return [...db.saved_weeks]
+      return db.saved_weeks.filter(row => row.family_id === familyId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .map(row => entryFromRows(db, row.id))
         .filter((entry): entry is HistoryEntry => entry !== null)
     },
-    async get(id) {
-      return entryFromRows(await load(file), id)
+    async get(familyId, id) {
+      const db = await load(file)
+      return db.saved_weeks.some(row => row.id === id && row.family_id === familyId) ? entryFromRows(db, id) : null
     },
-    save(label, week, weekStart, changes = []) {
+    save(familyId, label, week, weekStart, changes = []) {
       return serialized(async () => {
         const db = await load(file)
         const now = new Date().toISOString()
         const weekId = randomUUID()
-        db.saved_weeks.push({ id: weekId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now, shopping_list: null })
+        db.saved_weeks.push({ id: weekId, family_id: familyId, label, week_start: weekStart ?? null, generated_at: week.generatedAt, created_at: now, shopping_list: null })
         for (const day of week.days) {
           for (const meal of ['comida', 'cena'] as const) {
             const change = changes.find(item => item.day === day.day && item.meal === meal)
@@ -143,29 +158,21 @@ function createLocalRelationalHistoryStore(file = DATA_FILE): HistoryStore {
         return entryFromRows(db, weekId)!
       })
     },
-    setShoppingList(id, list) {
+    setShoppingList(familyId, id, list) {
       return serialized(async () => {
         const db = await load(file)
-        const week = db.saved_weeks.find(row => row.id === id)
+        const week = db.saved_weeks.find(row => row.id === id && row.family_id === familyId)
         if (!week) return false
         week.shopping_list = list
         await persist(file, db)
         return true
       })
     },
-    remove(id) {
+    remove(familyId, id) {
       return serialized(async () => {
         const db = await load(file)
-        if (!db.saved_weeks.some(row => row.id === id)) return false
-        // ON DELETE CASCADE de week_meals. Y, a petición ("no quiero tener ese histórico"), también
-        // se borran las recetas que usaba esa semana y ya no usa ninguna otra (con sus ingredientes y
-        // pasos); las que comparte con otra semana guardada se quedan. Ver schema.sql.
-        db.saved_weeks = db.saved_weeks.filter(row => row.id !== id)
-        db.week_meals = db.week_meals.filter(row => row.week_id !== id)
-        const inUse = new Set(db.week_meals.map(row => row.recipe_id))
-        db.recipes = db.recipes.filter(row => inUse.has(row.id))
-        db.recipe_ingredients = db.recipe_ingredients.filter(row => inUse.has(row.recipe_id))
-        db.recipe_steps = db.recipe_steps.filter(row => inUse.has(row.recipe_id))
+        if (!db.saved_weeks.some(row => row.id === id && row.family_id === familyId)) return false
+        deleteWeeksWhere(db, row => row.id === id)
         await persist(file, db)
         return true
       })

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { NotFoundError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
@@ -19,14 +20,15 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function POST(request: Request, { params }: RouteContext) {
   return withTestMode(request, async () => {
     try {
+      const { family } = await requireFamily(request)
       const { id } = await params
       const store = getHistoryStore()
-      const entry = await store.get(id)
+      const entry = await store.get(family.id, id)
       if (!entry) throw new NotFoundError(`No existe ninguna semana guardada con id "${id}".`)
       const regenerate = new URL(request.url).searchParams.get('regenerate') === '1'
       if (entry.shoppingList && !regenerate) return NextResponse.json({ shoppingList: entry.shoppingList })
       const shoppingList = await generateShoppingList(entry.week)
-      if (!(await store.setShoppingList(id, shoppingList))) throw new NotFoundError(`No existe ninguna semana guardada con id "${id}".`)
+      if (!(await store.setShoppingList(family.id, id, shoppingList))) throw new NotFoundError(`No existe ninguna semana guardada con id "${id}".`)
       return NextResponse.json({ shoppingList })
     } catch (error) {
       return toErrorResponse(error)

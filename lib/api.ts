@@ -1,4 +1,4 @@
-import type { DayName, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, ShoppingList, WeekPlan } from '@/server/types'
+import type { DayName, Family, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, ShoppingList, WeekPlan } from '@/server/types'
 import { testModeHeaders } from '@/lib/test-mode'
 
 // Cliente HTTP del frontend hacia app/api/**. Cada función hace exactamente una llamada y devuelve
@@ -23,6 +23,8 @@ function apiFetch(url: string, init: RequestInit & { headers?: Record<string, st
 async function parseOrThrow<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null)
   if (response.status === 401 && typeof window !== 'undefined') window.location.assign('/login')
+  // Hay sesión pero ninguna familia activa (varias y sin elegir, o la elegida ya no es suya).
+  if (response.status === 409 && body?.error?.code === 'family_required' && typeof window !== 'undefined') window.location.assign('/familias/seleccionar')
   if (!response.ok) {
     const message = body?.error?.message ?? `Error inesperado (${response.status}).`
     throw new ApiError(message, body?.error?.code)
@@ -96,5 +98,37 @@ export async function getTasteContext(weekStart?: string): Promise<{ weeks: Arra
 // POST /api/history/[id]/shopping-list — la lista de la compra de una semana guardada (la genera la primera vez; con `regenerate` la rehace).
 export async function getShoppingList(id: string, regenerate = false): Promise<{ shoppingList: ShoppingList }> {
   const response = await apiFetch(`/api/history/${encodeURIComponent(id)}/shopping-list${regenerate ? '?regenerate=1' : ''}`, { method: 'POST' })
+  return parseOrThrow(response)
+}
+
+// --- Familias (/api/families) ------------------------------------------------------------------
+
+// GET /api/families — las familias de la persona y el id de la activa (null si hay que elegir).
+export async function listFamilies(): Promise<{ families: Family[]; activeId: string | null }> {
+  const response = await apiFetch('/api/families', { cache: 'no-store' })
+  return parseOrThrow(response)
+}
+
+// POST /api/families — crea una familia (con quien la crea como único miembro).
+export async function createFamily(name: string): Promise<{ family: Family }> {
+  const response = await apiFetch('/api/families', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
+  return parseOrThrow(response)
+}
+
+// PATCH /api/families/[id] — lo único editable: el nombre y los correos con acceso (lista completa).
+export async function updateFamily(id: string, input: { name: string; members: string[] }): Promise<{ family: Family }> {
+  const response = await apiFetch(`/api/families/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  return parseOrThrow(response)
+}
+
+// DELETE /api/families/[id] — borra la familia y sus semanas (siempre queda al menos una).
+export async function deleteFamily(id: string): Promise<void> {
+  const response = await apiFetch(`/api/families/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await parseOrThrow(response)
+}
+
+// POST /api/families/select — elige la familia activa.
+export async function selectFamily(familyId: string): Promise<{ family: Family }> {
+  const response = await apiFetch('/api/families/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ familyId }) })
   return parseOrThrow(response)
 }

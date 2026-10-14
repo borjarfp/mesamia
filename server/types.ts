@@ -213,3 +213,6 @@ export const HistoryEntrySchema = z.object({
   shoppingList: ShoppingListSchema.optional(),
 })
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>
+
+// Familia: agrupa a las personas (por correo de Google) que comparten las semanas guardadas.
+export type Family = { id: string; name: string; members: string[]; createdAt: string }

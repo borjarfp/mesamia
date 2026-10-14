@@ -144,13 +144,24 @@ El esquema completo, con tipos y restricciones, está en `server/db/schema.sql`.
 
 ```mermaid
 erDiagram
+  families ||--o{ family_members : "quién accede (correo)"
+  families ||--o{ saved_weeks : "semanas de la familia"
   saved_weeks ||--o{ week_meals : "14 huecos"
   recipes ||--o{ week_meals : "usada en"
   recipes ||--o{ recipe_ingredients : "tiene"
   recipes ||--o{ recipe_steps : "tiene"
 
+  families {
+    uuid id PK
+    text name
+  }
+  family_members {
+    uuid family_id FK
+    text email "identidad = correo de Google"
+  }
   saved_weeks {
     uuid id PK
+    uuid family_id FK "NULL solo en guardados antiguos"
     text label
     date week_start
     timestamptz generated_at
