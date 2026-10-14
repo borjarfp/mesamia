@@ -9,7 +9,7 @@ Dos ideas para leerlos:
 - **Reglas obligatorias frente a orientación.** Las obligatorias las comprueba siempre el código
   (`server/rules/`): límites semanales de proteína, ingredientes prohibidos, recetas fáciles y de
   ≤ 50 min de lunes a viernes, y que la cena no repita lo del cole. Lo que es orientación lo decide
-  la IA: que la comida se parezca a la de Aina, inspirarse en la "proposta de sopar" y adaptarse a
+  la IA: que la comida se parezca a la de los niños, inspirarse en la propuesta de cena y adaptarse a
   los gustos del historial.
 - **El historial de gustos no se guarda aparte.** Se calcula en el momento a partir de las semanas
   guardadas: cada `week_meals` sabe si la familia aceptó la propuesta de la IA o la cambió, y por
@@ -36,7 +36,7 @@ flowchart LR
     R4["/api/history<br/>GET · POST · GET id · DELETE id"]
     R5["GET /api/history/context<br/>lo que verá la IA del historial"]
     PIPE["server/pipeline<br/>orchestrator · substitute"]
-    CTX["Contexto para el LLM<br/>schoolContext: menú de Aina e Iria<br/>taste-context: 3 semanas anteriores"]
+    CTX["Contexto para el LLM<br/>schoolContext: menús escolares de los hijos e hijas<br/>taste-context: 3 semanas anteriores"]
     RULES["server/rules<br/>engine + restrictions<br/>código determinista"]
     STORE["server/history/store.ts<br/>interfaz HistoryStore"]
   end
@@ -67,11 +67,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  IN["PDF / imágenes<br/>un campo por niña: Aina, Iria<br/>+ weekStart"] --> S1["Paso 1 · Extracción<br/>Gemini Flash · 1 llamada por niña<br/>comida de cada día + proposta de sopar<br/>+ fechas del menú · elige la semana en un menú mensual"]
+  IN["PDF / imágenes<br/>un campo por hijo o hija (los de la familia)<br/>+ weekStart"] --> S1["Paso 1 · Extracción<br/>Gemini Flash · 1 llamada por hijo o hija<br/>comida de cada día + propuesta de cena<br/>+ fechas del menú · elige la semana en un menú mensual"]
   S1 --> SM[("Menú escolar por día<br/>nunca se muestra en la app")]
   HIST[("Historial de gustos<br/>3 semanas guardadas anteriores<br/>aceptado · cambiado · escrito a mano")]
 
-  SM -- "comida adultos ≈ la de Aina<br/>cena inspirada en su proposta<br/>cena ≠ lo que comieron en el cole" --> S2
+  SM -- "comida adultos ≈ la del primer hijo/a<br/>cena inspirada en la propuesta de cena<br/>cena ≠ lo que comieron en el cole" --> S2
   HIST -- "adaptarse a lo que<br/>aceptan y cambian" --> S2
 
   S2["Paso 2 · Planificación<br/>Gemini · 14 huecos<br/>comida + cena × 7 días"] --> V{"Motor de reglas<br/>límites de proteína · ingredientes prohibidos<br/>fácil y ≤ 50 min L-V · cena ≠ cole"}
@@ -159,6 +159,7 @@ erDiagram
   families {
     uuid id PK
     text name
+    jsonb children "nombres de sus hijos e hijas"
   }
   family_rules {
     uuid family_id PK

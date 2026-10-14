@@ -11,22 +11,22 @@ import type { FamilyStore } from './store'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const normalize = (email: string) => email.trim().toLowerCase()
 
-type FamilyRecord = { id: string; name: string; created_at: Date }
+type FamilyRecord = { id: string; name: string; children: string[]; created_at: Date }
 
 async function loadFamilies(rows: FamilyRecord[], run: Pick<PoolClient, 'query'> = getPool()): Promise<Family[]> {
   if (rows.length === 0) return []
   const { rows: members } = await run.query<{ family_id: string; email: string }>('SELECT family_id, email FROM family_members WHERE family_id = ANY($1::uuid[]) ORDER BY created_at, email', [rows.map(row => row.id)])
-  return rows.map(row => ({ id: row.id, name: row.name, members: members.filter(member => member.family_id === row.id).map(member => member.email), createdAt: row.created_at.toISOString() }))
+  return rows.map(row => ({ id: row.id, name: row.name, members: members.filter(member => member.family_id === row.id).map(member => member.email), children: row.children ?? [], createdAt: row.created_at.toISOString() }))
 }
 
 // Las familias de una persona con sus miembros en UNA consulta (esto se ejecuta en cada petición a
 // la API, para comprobar la familia activa): cada ida y vuelta a Supabase cuesta ~30 ms.
 const listFor = async (email: string, run: Pick<PoolClient, 'query'> = getPool()): Promise<Family[]> => {
   const { rows } = await run.query<FamilyRecord & { members: string[] }>(
-    `SELECT f.id, f.name, f.created_at,
+    `SELECT f.id, f.name, f.children, f.created_at,
             (SELECT COALESCE(json_agg(m.email ORDER BY m.created_at, m.email), '[]'::json) FROM family_members m WHERE m.family_id = f.id) AS members
        FROM families f WHERE EXISTS (SELECT 1 FROM family_members me WHERE me.family_id = f.id AND me.email = $1) ORDER BY f.created_at`, [email])
-  return rows.map(row => ({ id: row.id, name: row.name, members: row.members, createdAt: row.created_at.toISOString() }))
+  return rows.map(row => ({ id: row.id, name: row.name, members: row.members, children: row.children ?? [], createdAt: row.created_at.toISOString() }))
 }
 
 async function insertFamily(client: PoolClient, name: string, creatorEmail: string): Promise<string> {
@@ -66,19 +66,22 @@ export function createPostgresFamilyStore(): FamilyStore {
       await ensureSchema()
       return inTransaction(async client => {
         const id = await insertFamily(client, name, normalize(creatorEmail))
-        return (await loadFamilies((await client.query<FamilyRecord>('SELECT id, name, created_at FROM families WHERE id = $1', [id])).rows, client))[0]
+        return (await loadFamilies((await client.query<FamilyRecord>('SELECT id, name, children, created_at FROM families WHERE id = $1', [id])).rows, client))[0]
       })
     },
-    async update(id, { name, members }) {
+    async update(id, { name, members, children }) {
       if (!UUID.test(id)) return null
       await ensureSchema()
       return inTransaction(async client => {
-        const { rowCount } = await client.query('UPDATE families SET name = $2 WHERE id = $1', [id, name])
+        // Solo se toca lo que venga (nombre, hijos e hijas y/o miembros).
+        const { rowCount } = await client.query('UPDATE families SET name = COALESCE($2, name), children = COALESCE($3::jsonb, children) WHERE id = $1', [id, name ?? null, children === undefined ? null : JSON.stringify(children)])
         if (!rowCount) return null
-        const wanted = [...new Set(members.map(normalize))]
-        await client.query('DELETE FROM family_members WHERE family_id = $1 AND NOT (email = ANY($2::text[]))', [id, wanted])
-        for (const email of wanted) await client.query('INSERT INTO family_members (family_id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, email])
-        return (await loadFamilies((await client.query<FamilyRecord>('SELECT id, name, created_at FROM families WHERE id = $1', [id])).rows, client))[0]
+        if (members !== undefined) {
+          const wanted = [...new Set(members.map(normalize))]
+          await client.query('DELETE FROM family_members WHERE family_id = $1 AND NOT (email = ANY($2::text[]))', [id, wanted])
+          for (const email of wanted) await client.query('INSERT INTO family_members (family_id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, email])
+        }
+        return (await loadFamilies((await client.query<FamilyRecord>('SELECT id, name, children, created_at FROM families WHERE id = $1', [id])).rows, client))[0]
       })
     },
     async getRules(familyId) {

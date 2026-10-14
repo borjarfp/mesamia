@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { ConfigError, FamilyRequiredError, ForbiddenError, NotFoundError, UnauthorizedError, UpstreamApiError, ValidationError } from './errors'
+import { ChildNameSchema, MAX_CHILDREN } from './families/schemas'
 import type { SchoolMenuUpload } from './pipeline/step1-extract-school-menu'
 
 // Forma de error consistente en toda la API: { error: { code, message } }. Los códigos son estables
@@ -28,9 +29,9 @@ const ACCEPTED_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg
 // el endpoint simple, en vez de eso rechazamos archivos más grandes con un error claro.
 const MAX_FILE_BYTES = 15 * 1024 * 1024
 
-// Contrato de subida: cada niña es un campo del formulario cuyo nombre es su propio nombre (p. ej.
-// "Aina", "Iria"), con uno o varios archivos adjuntos bajo ese mismo campo. No hay una lista
-// separada de "a quién pertenece cada archivo": el nombre del campo ya lo dice.
+// Contrato de subida: cada hijo o hija es un campo del formulario cuyo nombre es su propio nombre (el que la
+// familia tiene en su perfil, p. ej. "Lucía"), con uno o varios archivos adjuntos bajo ese mismo campo. No hay una
+// lista separada de "a quién pertenece cada archivo": el nombre del campo ya lo dice.
 // Campo de texto opcional "weekStart" (YYYY-MM-DD) de un multipart: undefined si no viene.
 export function parseWeekStartField(formData: FormData): string | undefined {
   const value = formData.get('weekStart')
@@ -39,12 +40,18 @@ export function parseWeekStartField(formData: FormData): string | undefined {
   return value
 }
 
-export async function parseSchoolMenuUploads(formData: FormData): Promise<SchoolMenuUpload[]> {
+// `allowEmpty`: el menú escolar es OPCIONAL al planificar (una familia sin hijos, o que no quiere usarlo, genera solo con
+// sus reglas): sin archivos devuelve [] en vez de error. /api/menus/extract, que existe solo para extraer, sí lo exige.
+export async function parseSchoolMenuUploads(formData: FormData, { allowEmpty = false }: { allowEmpty?: boolean } = {}): Promise<SchoolMenuUpload[]> {
   const byChild = new Map<string, SchoolMenuUpload>()
 
   for (const [fieldName, value] of formData.entries()) {
     if (!(value instanceof File)) continue
     if (value.size === 0) continue
+    // El nombre del campo es el del hijo o hija y acaba dentro del prompt de Gemini: se limita su forma y su longitud.
+    const kid = ChildNameSchema.safeParse(fieldName)
+    if (!kid.success) throw new ValidationError(`El nombre "${fieldName.slice(0, 40)}" no es válido para un hijo o hija: ${kid.error.issues[0]?.message ?? 'revisa el nombre'}`)
+    if (!byChild.has(fieldName) && byChild.size >= MAX_CHILDREN) throw new ValidationError(`Se admiten como máximo ${MAX_CHILDREN} hijos o hijas por semana.`)
 
     if (!ACCEPTED_MIME_TYPES.has(value.type)) {
       throw new ValidationError(`El archivo "${value.name}" tiene un tipo no soportado (${value.type || 'desconocido'}). Solo se aceptan PDF, PNG, JPEG o WebP.`)
@@ -63,9 +70,9 @@ export async function parseSchoolMenuUploads(formData: FormData): Promise<School
   }
 
   const uploads = Array.from(byChild.values())
-  if (uploads.length === 0) {
+  if (uploads.length === 0 && !allowEmpty) {
     throw new ValidationError(
-      'No se ha recibido ningún archivo. Sube el/los PDF o imágenes del menú escolar bajo un campo de formulario por niña (p. ej. "Aina", "Iria").',
+      'No se ha recibido ningún archivo. Sube el/los PDF o imágenes del menú escolar bajo un campo de formulario por hijo o hija (con su nombre como clave, p. ej. "Lucía").',
     )
   }
   return uploads

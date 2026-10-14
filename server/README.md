@@ -40,7 +40,7 @@ extractSchoolMenu   →    planWeek (+ reglas +    →    fetchRecipes       →
                                                                             assembleWeek (JSON final)
 ```
 
-- **Paso 1** — una llamada a Gemini **por niña** (no una sola llamada mezclando documentos): el
+- **Paso 1** — una llamada a Gemini **por hijo o hija** (no una sola llamada mezclando documentos): el
   cliente ya indica de forma fiable a quién pertenece cada archivo, así que no hace falta que
   Gemini además lo adivine.
 - **Paso 2** — planifica los 14 "huecos" (comida y cena de los 7 días, **todos**, incluida la
@@ -64,9 +64,9 @@ no se arregla reintentando, así que esos se propagan al momento.
 
 ## Por qué el menú escolar nunca ocupa un hueco
 
-A petición explícita del usuario, el menú del cole/guardería de Aina e Iria no es información que
+A petición explícita del usuario, el menú del cole/guardería de los hijos e hijas no es información que
 la app deba mostrar. Su único uso es como contexto: en el Paso 2 (y en la sustitución) para que la
-cena de cada día de cole no repita categoría de proteína ni ingredientes con lo que las niñas ya
+cena de cada día de cole no repita categoría de proteína ni ingredientes con lo que los niños ya
 comieron. `PLANNED_SLOTS` cubre los 14 huecos reales (comida+cena de los 7 días) y el menú escolar
 nunca se convierte en un `FinalDish` ni ocupa ninguno de ellos — `assembleWeek`
 (`server/pipeline/assemble.ts`) no tiene ninguna rama que lo haga, y `DishSourceKindSchema` ya no
@@ -79,14 +79,14 @@ Todas las respuestas de error tienen la forma `{ error: { code, message, details
 
 ### `POST /api/menus/extract` — Paso 1 en solitario
 
-`multipart/form-data`: un campo de formulario **por niña**, con su propio nombre como clave (p.
-ej. `Aina`, `Iria`), y uno o varios archivos adjuntos bajo ese campo (PDF, PNG, JPEG o WebP; máx.
+`multipart/form-data`: un campo de formulario **por hijo o hija**, con su propio nombre como clave (el de su
+perfil en la familia; p. ej. `Lucía`, `Mateo`; máx. 30 caracteres y 10 por semana), y uno o varios archivos adjuntos bajo ese campo (PDF, PNG, JPEG o WebP; máx.
 15&nbsp;MB cada uno).
 
 ```bash
 curl -X POST http://localhost:3000/api/menus/extract \
-  -F "Aina=@menu-aina-septiembre.pdf" \
-  -F "Iria=@menu-guarderia-iria.pdf"
+  -F "Lucía=@menu-lucia-septiembre.pdf" \
+  -F "Mateo=@menu-guarderia-mateo.pdf"
 ```
 
 Respuesta: `{ schoolMenu: SchoolMenuExtraction }`.
@@ -109,15 +109,16 @@ cumple todo; si no, es la mejor propuesta tras 3 intentos, con el detalle de qu�
 
 El equivalente directo del botón único "Generar menú semanal inteligente" del frontend.
 `multipart/form-data` igual que `/extract`, más un campo de texto opcional `weekStart`
-(YYYY-MM-DD, el lunes de la semana a planificar).
+(YYYY-MM-DD, el lunes de la semana a planificar). **Los menús escolares son opcionales**: sin ningún archivo se
+salta el Paso 1 y la semana se genera solo con las reglas de la familia (los prompts omiten lo del menú escolar).
 
 ```bash
 curl -X POST http://localhost:3000/api/menus/plan \
-  -F "Aina=@menu-aina.pdf" -F "Iria=@menu-iria.pdf" \
+  -F "Lucía=@menu-lucia.pdf" -F "Mateo=@menu-mateo.pdf" \
   -F "weekStart=2026-10-12"
 ```
 
-Respuesta: `{ schoolMenu, week, violations }`.
+Respuesta: `{ schoolMenu, week, violations }` (con `schoolMenu.children` vacío si no se subió ningún menú).
 
 ### `POST /api/menus/substitute` — sustituir un plato ("Cambiar")
 
@@ -157,7 +158,7 @@ cada petición contra la BD (hay que seguir siendo miembro), o la única que se 
 
 - `GET /api/families` → `{ families: Family[], activeId: string | null }`. Si la persona no tiene ninguna, se le crea "Mi familia".
 - `POST /api/families` con `{ name }` → `{ family }` (201), con quien la crea como único miembro. No la activa.
-- `PATCH /api/families/[id]` con `{ name, members: string[] }` → `{ family }`. Solo se edita el nombre y los correos con acceso (lista completa). No te puedes quitar a ti mismo. 404 si no eres miembro.
+- `PATCH /api/families/[id]` con `{ name?, members?: string[] (correos), children?: string[] (nombres) }` → `{ family }`. Se cambia solo lo que se envíe (al menos una cosa); cada lista es la lista completa. `children` son los hijos e hijas de la familia: 1-30 caracteres, sin duplicados ignorando mayúsculas y tildes, máx. 10 (a ellos se asocian los menús escolares). No te puedes quitar a ti mismo. 404 si no eres miembro.
 - `DELETE /api/families/[id]` → 204. Borra la familia **para todos sus miembros**, con sus semanas y recetas huérfanas. 400 si es la única de la persona.
 - `POST /api/families/select` con `{ familyId }` → `{ family }` y guarda la cookie. 404 si no eres miembro.
 
@@ -201,13 +202,13 @@ vacío, para que el siguiente guardado no borre el histórico. **Para pasar a un
 
 ## Menú escolar como contexto (`server/prompts/schoolContext.ts`)
 
-El Paso 1 extrae, además de la comida de cada día, la "proposta de sopar" si el menú la trae
+El Paso 1 extrae, además de la comida de cada día, la propuesta de cena ("proposta de sopar") si el menú la trae
 (`dinnerSuggestion`, opcional), y las fechas del menú (`menuStartDate`/`menuEndDate`, si el
 documento las indica). Con `weekStart` elige la semana correcta de un menú mensual. El frontend
 compara esas fechas con la semana planificada y avisa si no coinciden (`lib/school-dates.ts`). Planificación y sustitución reciben el menú escolar en texto por
 día (`formatSchoolDay`), con estas instrucciones (`SCHOOL_CONTEXT_LINES`):
-- la comida de los adultos de L-V se parece a la de Aina (`REFERENCE_CHILD`);
-- la cena se inspira en su proposta de sopar;
+- la comida de los adultos de L-V se parece a la del primer hijo o hija de la lista (el orden es el de los hijos e hijas de la familia);
+- la cena se inspira en la propuesta de cena que traiga el menú escolar;
 - la cena no repite la proteína ni los ingredientes del cole. Esta última es obligatoria y la valida
   también el motor de reglas.
 
@@ -219,7 +220,7 @@ Tavily: `server/clients/{gemini,tavily}.ts` devuelven datos de `server/testing/`
 
 ```bash
 curl -X POST http://localhost:3000/api/menus/plan -H "x-mesamia-pruebas: 1" \
-  -F "Aina=@menu-aina.pdf" -F "weekStart=2026-10-12"
+  -F "Lucía=@menu-lucia.pdf" -F "weekStart=2026-10-12"
 ```
 
 ## Historial de gustos (`server/history/taste-context.ts`)
@@ -239,7 +240,7 @@ plato final) y se guardan en `week_meals.proposed_title`/`change_kind`.
 
 Determinista, no delega en el LLM. Cuenta las categorías de proteína (`huevo`, `ave`, `pescado`,
 `carne_roja`, `legumbre`, `otro` — interpretación concreta de "tipología del plato" del enunciado)
-sobre los 14 huecos generados, incluida la comida de lunes a viernes. El menú escolar de las niñas
+sobre los 14 huecos generados, incluida la comida de lunes a viernes. El menú escolar de los hijos e hijas
 nunca entra en el recuento — no es una propuesta que se valide, solo contexto para la regla de
 "no repetir en la cena". El solapamiento de
 ingredientes cena-vs-cole es una heurística de texto (normaliza acentos/mayúsculas, compara por
@@ -263,7 +264,7 @@ Con las claves reales puestas, se ha ejecutado de verdad (no solo `tsc`/errores 
 - `generateStructured` (Gemini, Flash) y `searchRecipeCandidates` (Tavily) por separado — ambos responden
   correctamente; Tavily encontró y clasificó bien un resultado real de El Comidista (el caso del
   dominio compartido con ruta específica).
-- `POST /api/menus/generate` completo con un menú escolar sintético de una niña: la semana
+- `POST /api/menus/generate` completo con un menú escolar sintético de un hijo o hija: la semana
   resultante cumplió las 5 reglas (repetición cena/cole por día, máx. huevo/ave/pescado/carne roja,
   mín. legumbres) sin necesitar reintento, con recetas reales de Cookpad, El Comidista y Directo al
   Paladar.

@@ -11,10 +11,10 @@ export const runtime = 'nodejs'
 // extracción antes de planificar, y para no repetir el OCR si ya se tiene ese JSON (lo puede
 // reenviar directamente a /api/menus/generate).
 //
-// Body: multipart/form-data. Un campo de formulario por niña, con su propio nombre como clave (p.
-// ej. "Aina", "Iria"), y uno o varios archivos (PDF, PNG, JPEG o WebP) adjuntos bajo ese campo.
+// Body: multipart/form-data. Un campo de formulario por hijo o hija, con su propio nombre como clave (p.
+// ej. "Lucía"), y uno o varios archivos (PDF, PNG, JPEG o WebP) adjuntos bajo ese campo.
 // Campo de texto opcional "weekStart" (YYYY-MM-DD): la semana a planificar, para elegir la semana
-// correcta de un menú mensual. La respuesta incluye menuStartDate/menuEndDate por niña si el
+// correcta de un menú mensual. La respuesta incluye menuStartDate/menuEndDate por hijo o hija si el
 // documento trae fechas.
 export async function POST(request: Request) {
   return withTestMode(request, async () => {

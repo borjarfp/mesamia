@@ -27,7 +27,7 @@ function ingredientsOverlap(a: string[], b: string[]): string[] {
 }
 
 // Ingredientes + categoría de proteína que el colegio/guardería sirve un día dado, unidos entre
-// todas las niñas (si Aina e Iria comen algo distinto ese día, se evita lo de ambas).
+// todos los hijos e hijas (si comen algo distinto ese día, se evita lo de todos).
 function schoolContextForDay(schoolMenu: SchoolMenuExtraction, day: DayName): { ingredients: string[]; categories: Set<ProteinCategory> } {
   const entries = schoolMenu.children.flatMap(child => child.meals.filter(meal => meal.day === day))
   return {

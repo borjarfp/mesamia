@@ -1,7 +1,7 @@
 # MesaMía — Contexto del proyecto
 
 Prototipo web de **planificador de menús semanales familiares**. Una familia sube los PDF/imágenes
-del menú del cole o guardería de sus hijas (Aina e Iria) y la app propone comidas y cenas para los
+del menú del cole o guardería de sus hijos e hijas (cada familia define los suyos) y la app propone comidas y cenas para los
 7 días de la semana, equilibradas y sin repetir lo que ya comen en el colegio.
 
 Estado actual: **la app funciona de verdad, de punta a punta**. El frontend (`app/planificador`,
@@ -37,7 +37,7 @@ Scripts: `pnpm dev`, `pnpm build`, `pnpm start`. No hay tests, ni linter, ni CI 
 app/
   layout.tsx           Root layout. lang="es", metadata, favicon, Analytics en prod.
   planificador/
-    page.tsx           Semana actual: subir menús por niña, generar (POST /api/menus/plan o
+    page.tsx           Semana actual: subir menús por hijo/a, generar (POST /api/menus/plan o
                        /generate), editar platos. Client component.
   guardados/
     page.tsx           Historial real (GET /api/history), cada uno con su "Ver". Client component.
@@ -105,17 +105,24 @@ pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten co
   Las flechas ‹ › del header (`WeekPicker`, que se pasa como `title` de `AppHeader`) mueven a
   cualquier otra semana, el eyebrow muestra el texto relativo, y aparece "Volver a la semana que
   viene" si se ha movido. La semana elegida da `weekLabel`/`dateLabels` a `WeekView`, así que es
-  la etiqueta con la que se guarda en el historial. `uploaded: { id, file, child }[]` (el `File` real, no solo
-  el nombre) — cada archivo se sube bajo un campo de formulario con el nombre de la niña (`Aina` /
-  `Iria`, `CHILDREN` en el propio fichero); por defecto se asigna a "Aina" y hay dos botones-pastilla
-  dentro de cada chip para retocar a quién pertenece (el backend agrupa por ese nombre de campo, ver
-  `parseSchoolMenuUploads` en `server/http.ts` — no hay una UI de "quién es cada archivo" más
-  elaborada, es la mínima necesaria para que el contrato del backend sea usable). "Generar menú
+  la etiqueta con la que se guarda en el historial. **Los menús escolares se suben por hijo o hija**
+  (`components/menu/school-menu-uploads.tsx`): los hijos e hijas son **los de la familia activa** (campo
+  `children` de `Family`; **se añaden, cambian y quitan SOLO en Perfil → Familias → "Hijos e hijas"**, nunca
+  desde el planificador: pedido explícito, el planificador solo los lee). Hay **una fila por
+  hijo/a con su propio botón "Subir menú" y su propia zona de arrastre**, así cada archivo queda asociado a quien
+  es sin corregirlo después; sin hijos aparece "Añade a tus hijos e hijas en la configuración de la familia para subir sus menús" con un enlace a `/perfil`. `uploaded: { id,
+  file, child }[]` (el `File` real; `child` es el nombre): cada archivo se envía bajo un campo de formulario con
+  el nombre del hijo/a (el backend agrupa por ese nombre de campo, ver `parseSchoolMenuUploads` en
+  `server/http.ts`), **en el orden de los hijos e hijas de la familia**: el primero de la lista es la referencia
+  para la comida de los adultos (ver "Menú escolar: comida parecida y propuesta de cena"). **No hay nombres fijos
+  en ningún sitio** (ni "Aina", ni "Iria", ni "niñas"): la app es de cualquier familia. Los nombres se validan (1-30
+  caracteres, sin caracteres de control, sin duplicados ignorando mayúsculas y tildes, máx. 10), también el nombre
+  del campo en el servidor, porque acaba dentro del prompt de Gemini. "Generar menú
   semanal inteligente" llama a `planFullWeek()` (`lib/api.ts` → `POST /api/menus/plan`, multipart);
   es la única forma de generar: **el botón "Probar con un menú de ejemplo" y su
   `EXAMPLE_SCHOOL_MENU` se quitaron a petición del usuario** (el estado vacío ya no ofrece ningún
   atajo; `generateFromSchoolMenu()` sigue en `lib/api.ts` como cliente de
-  `POST /api/menus/generate`, pero ninguna pantalla lo usa). **El botón está deshabilitado mientras no haya ningún archivo subido** (a petición), con una línea ámbar debajo que explica por qué ("Sube el menú del cole de al menos una niña…"), para que no parezca roto. `handleGenerate` mantiene su propia comprobación por si acaso. Tarda **~1,9 min de media** con PDF reales (medido por el
+  `POST /api/menus/generate`, pero ninguna pantalla lo usa). **El menú escolar es OPCIONAL** (pedido: una familia puede no tener hijos o no querer usarlo y generar solo con las reglas): el botón "Generar" está habilitado sin subir nada, y debajo una nota gris dice "Sin menú escolar, la semana se genera solo con las reglas de tu familia" (antes era un aviso ámbar y el botón estaba deshabilitado); la tarjeta de subida lleva "(opcional)". Tarda **~1,9 min de media** con PDF reales (medido por el
   usuario; sin el Paso 1, `/api/menus/generate` ronda 45-60s) y puede fallar (cuota, red, etc.),
   así que hay un `Alert` de error real. Mientras genera se muestra `GenerationProgress`
   (`components/menu/generation-progress.tsx`): una barra que avanza en lineal hasta
@@ -321,32 +328,24 @@ env ni zod) que importan tanto `server/clients/tavily.ts`, para filtrar resultad
 consulta. Si se añade o quita un sitio, se hace solo ahí; `homeUrl`/`note` son solo de
 presentación.
 
-**Esta app tuvo, en algún punto, dos versiones contradictorias de qué es la "Comida" de lunes a
-viernes**, y se resolvió dos veces en direcciones opuestas — la que queda vigente es la segunda,
-por instrucción explícita y sin ambigüedad del usuario: *"no me interesa saber lo que comen mis
-hijas, solo quiero que gener[e] comidas para nosotros. La comida de mis hijas tiene que tenerla en
-cuenta para no repetir la misma comida para la cena, ya está, solo sirve para eso el menú de Aina y
-el de Iria."* En una versión intermedia (ya no vigente) ese hueco llegó a mostrar el menú escolar
-real de las niñas (con badge "Colegio"), porque el pipeline solo planificaba 9 huecos y colocaba
-ahí el dato del Paso 1 al no generar nada propio para los padres. **Eso quedó descartado**: la
-comida de lunes a viernes es ahora un plato real generado por IA para los adultos de la casa, **el
-menú escolar nunca ocupa un hueco ni se muestra en ningún sitio** — solo entra como contexto en el
-Paso 2 para que la cena de ese día no repita categoría de proteína ni ingredientes con lo que las
-niñas ya comieron en el cole. Ver "El pipeline, en una frase por paso" más abajo para el diseño
-vigente.
+**La "Comida" de lunes a viernes es para los adultos de la casa** (decisión explícita del usuario, tras
+dos versiones contradictorias): *"no me interesa saber lo que comen mis hijos en el cole, solo quiero que
+genere comidas para nosotros; su menú solo sirve para no repetir la comida en la cena"*. En una versión
+intermedia (descartada) ese hueco llegó a mostrar el menú escolar real (con badge "Colegio"), porque el
+pipeline solo planificaba 9 huecos. **Ahora es un plato real generado por IA para los adultos, el menú
+escolar nunca ocupa un hueco ni se muestra en ningún sitio**: solo entra como contexto en el Paso 2 para que
+la cena de ese día no repita categoría de proteína ni ingredientes con lo que los niños ya comieron en el
+cole. Ver "El pipeline, en una frase por paso" más abajo.
 
-**Actualización posterior (vigente), también a petición explícita**: el menú de **Aina** ya no
-sirve solo para no repetir. El usuario pidió *"tener en cuenta la propuesta de cena que dice el
-menú de Aina y también la comida que va a tener ella para tener cosas semejantes"*, y al preguntarle
-eligió estas dos opciones:
-- **La comida de los adultos de lunes a viernes se PARECE a lo que come Aina** en el cole ese día
-  (mismo tipo de plato o proteína principal, en versión adulta).
-- **La cena se INSPIRA en la "proposta de sopar"** que trae el menú de Aina para cada día. Es solo
-  una sugerencia, no una obligación.
-
-La regla de que la cena no repite lo del cole **se mantiene** y va por encima de la proposta. El
-menú escolar sigue sin ocupar un hueco ni mostrarse. Iria (guardería) solo cuenta para no repetir.
-Ver "Menú escolar de Aina: comida parecida y proposta de sopar" más abajo.
+**Cómo se usa el menú escolar (también a petición explícita)**, para cualquier número de hijos e hijas:
+- **La comida de los adultos de lunes a viernes se PARECE a lo que comen los niños** en el cole ese día
+  (mismo tipo de plato o proteína principal, en versión adulta). Si hay varios menús distintos, la referencia
+  es el del **primero de la lista** de hijos e hijas de la familia.
+- **La cena se INSPIRA en la propuesta de cena** ("proposta de sopar" en catalán) que traiga el menú escolar de
+  ese día, venga del menú que venga. Es solo una sugerencia, no una obligación.
+- La regla de que **la cena no repite lo del cole** (de ninguno de ellos) se mantiene y va por encima de la
+  propuesta. El menú escolar sigue sin ocupar un hueco ni mostrarse.
+Ver "Menú escolar: comida parecida y propuesta de cena" más abajo.
 
 ## Backend (`server/` + `app/api/**`)
 
@@ -473,11 +472,14 @@ entrar."* Sustituye a la variable `AUTH_ALLOWED_EMAILS` (que con la lista vacía
 Pedido: una persona puede tener una o más familias y **las semanas guardadas van dentro de la familia**.
 Al entrar se elige familia (o, con una sola, se usa esa). Todo lo de semanas es de la familia activa.
 
-- **Modelo**: `families` (id, name) + `family_members` (family_id, email; PK ambos) y
+- **Modelo**: `families` (id, name, **`children`**: los nombres de sus hijos e hijas, jsonb; ver "Rutas" → planificador) + `family_members` (family_id, email; PK ambos) y
   `saved_weeks.family_id` (FK, `ON DELETE CASCADE`). **No hay tabla de usuarios**: la identidad es el
   correo de la sesión (en minúsculas). `recipes` sigue siendo un catálogo global compartido y
   direccionado por contenido; al borrar una familia se limpian las recetas huérfanas igual que al borrar
   una semana. Está en `schema.sql`, `tables.ts` (`families`, `family_members`) y `docs/arquitectura.md`.
+- **Hijos e hijas**: columna `families.children` (jsonb, `[]` por defecto), añadida por `ensureSchema()` con
+  `ADD COLUMN IF NOT EXISTS`. Las familias que ya existían empiezan sin hijos; **a la familia real del autor se le
+  cargaron "Aina" e "Iria" con SQL** para que no perdiera lo que ya tenía (una familia nueva empieza sin ninguno).
 - **Migración automática**: como con `shopping_list`, `pnpm db:migrate` solo vale para BD vacía; en
   Postgres `ensureSchema()` (`server/history/postgres-store.ts`, una vez por proceso, con
   `pg_advisory_xact_lock`, todo `IF NOT EXISTS`) crea las tablas y la columna. **La primera petición con
@@ -541,7 +543,7 @@ ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de ni
 ### El pipeline, en una frase por paso
 
 1. **Extracción** (`server/pipeline/step1-extract-school-menu.ts`, Gemini Flash) — una llamada
-   **por niña** (no una mezclando todos los documentos): el cliente ya dice de forma fiable a
+   **por hijo o hija** (no una mezclando todos los documentos): el cliente ya dice de forma fiable a
    quién pertenece cada archivo (el nombre del campo del formulario), así que Gemini no tiene que
    adivinar esa atribución, solo extraer.
 2. **Planificación** (`step2-plan-week.ts`, Gemini Pro) — pide los 14 "huecos" (comida y cena de
@@ -550,9 +552,9 @@ ahí, nunca en el código ni en un mensaje/commit). Es una clave de Gemini de ni
    resultado con `server/rules/engine.ts`, que es código determinista, no el LLM marcando su
    propia tarea. Si incumple algo, reintenta pasándole el detalle exacto de qué falló (hasta 3
    veces) — es lo que convierte esto en un pipeline con verificación, no una llamada a ciegas. El
-   menú escolar de las niñas se le da como contexto para tres cosas: que la comida de los adultos
-   se parezca a la de Aina, que la cena se inspire en su "proposta de sopar", y que la cena no lo
-   repita (ver "Menú escolar de Aina" más abajo).
+   menú escolar de los niños se le da como contexto para tres cosas: que la comida de los adultos
+   se parezca a la del primer hijo o hija, que la cena se inspire en la propuesta de cena del menú, y que la
+   cena no repita lo del cole (ver "Menú escolar: comida parecida y propuesta de cena" más abajo).
 3. **Candidatas** (`step3-fetch-recipes.ts`, Tavily) — una búsqueda por plato, todas en
    `Promise.all` (concurrentes, como pide el enunciado). Restringida a `cookidoo.es`,
    `elpais.com/gastronomia/el-comidista`, `directoalpaladar.com`, `cookpad.com`, `petitchef.es`
@@ -586,8 +588,8 @@ lo que dispara el botón "Cambiar" real del Drawer de `WeekView`, ver "Rutas" ar
 
 ### Por qué el menú escolar nunca ocupa un hueco
 
-A petición explícita del usuario, el menú del cole/guardería de Aina e Iria **no es información que
-la app tenga que mostrar** — a nadie le interesa ver ahí lo que comen las niñas. Su único propósito
+A petición explícita del usuario, el menú del cole/guardería de los hijos e hijas **no es información que
+la app tenga que mostrar** — a nadie le interesa ver ahí lo que comen los niños. Su único propósito
 es servir de contexto en el Paso 2 (y en la sustitución) para que la cena de cada día de cole no
 repita categoría de proteína ni ingredientes con lo que ellas ya comieron. Por eso `PLANNED_SLOTS`
 cubre los 14 huecos reales (comida+cena de los 7 días) y `assembleWeek`/`dishFromPlannedSlot`
@@ -612,7 +614,7 @@ generarlo, me saque un aviso"*. Funciona así:
   planificado (si solo hay inicio, se asumen 5 días). Devuelve `mismatched` (con el rango para
   mostrarlo) y `unknown` (menús sin fechas).
 - **En pantalla**: `SchoolDatesNotice` en `/planificador`, entre el botón Generar y la semana.
-  - Si alguna fecha no coincide: `Alert` ámbar con "El menú de las niñas que has subido no coincide
+  - Si alguna fecha no coincide: `Alert` ámbar con "Los menús escolares que has subido no coinciden
     con la semana que estás planificando (…)" y el rango de cada menú.
   - Si un documento no trae fechas: una línea gris, "No hemos podido comprobar las fechas…".
 
@@ -624,29 +626,46 @@ generarlo, me saque un aviso"*. Funciona así:
   mensual de 2 semanas planificando el 12-18 extrajo la segunda semana. En Chrome, el aviso aparece
   tras generar y desaparece al pasar a la semana que coincide. No se ha probado con los PDF reales.
 
-### Menú escolar de Aina: comida parecida y proposta de sopar (`server/prompts/schoolContext.ts`)
+### Menú escolar: comida parecida y propuesta de cena (`server/prompts/schoolContext.ts`)
 
-- **Extracción (Paso 1)**: `SchoolMealEntry` tiene un campo opcional `dinnerSuggestion`, que es la
-  "proposta de sopar" (o "propuesta de cena", "per sopar"...) copiada tal cual, sin traducir. Si el
-  menú no la trae (el de Iria), se omite y nunca se inventa.
-- **Contexto para el LLM**: `formatSchoolDay`/`formatSchoolWeek` pasan el menú escolar a texto, un
-  día por bloque, con lo que come cada niña (proteína e ingredientes) y la proposta si la hay.
-  Sustituye al `JSON.stringify(schoolMenu)` de antes. `SCHOOL_CONTEXT_LINES` son las instrucciones:
-  comida de adultos parecida a la de `REFERENCE_CHILD` (`'Aina'`), cena inspirada en su proposta y
-  regla de no repetir obligatoria. Lo comparten la planificación y la sustitución.
-- **Es orientación para el LLM, no una regla del motor**: el "parecido" no se valida con código. Lo
-  que sí sigue siendo determinista es el no repetir en la cena y los límites semanales. Ojo: como la
-  comida de los adultos copia la proteína del cole, si Aina come carne roja ese día, esa comida se
-  lleva el único cupo semanal de carne roja.
-- **De paso se arregló** que el prompt de "Buscar alternativas" decía "(se te da como contexto)"
-  refiriéndose a la comida escolar, pero nunca la incluía. Gemini proponía a ciegas y solo el motor
-  de reglas lo cazaba después, con un reintento. Ahora recibe `formatSchoolDay` de ese día.
-- **Probado** con un PDF sintético en catalán que imitaba el de Aina (5 días con "Proposta de
-  sopar"): la extracción leyó las 5 propuestas literalmente. En la planificación, solo Paso 2, la
-  comida de adultos coincidió en tipo con la de Aina los 5 días, y la cena siguió la proposta en 4.
-  El miércoles se apartó correctamente: la proposta era de garbanzos, pero Iria comía lentejas y
-  una cena de legumbre habría repetido proteína. Salieron 0 violaciones en 2 intentos. **No se ha
-  probado con el PDF real de Aina.**
+- **El menú escolar es opcional** (sin hijos, o sin ganas de usarlo): `POST /api/menus/plan` acepta CERO archivos
+  (`parseSchoolMenuUploads(formData, { allowEmpty: true })`; `/api/menus/extract`, que solo extrae, sigue exigiéndolos)
+  y el Paso 1 no llama a Gemini (`children: []`). Los prompts se adaptan con `hasSchoolMenu = schoolMenu.children.length
+  > 0` (por defecto `true`): **con menú escolar son idénticos a antes** (comprobado byte a byte con una foto previa de
+  los prompts de planificación y sustitución); **sin él** se omiten `SCHOOL_CONTEXT_LINES` (comida parecida, propuesta de
+  cena y no repetir), la línea de la comida de L-V dice solo "es para los adultos de la casa", y el prompt de usuario
+  pasa a "Esta semana no hay menú escolar que tener en cuenta: planifica los 14 huecos solo con las reglas indicadas"
+  (`buildWeekPlanningSystemInstruction(rules, hasSchoolMenu)`, `buildSubstitutionSystemInstruction(count, rules,
+  hasSchoolMenu)`). La sustitución también omite esas líneas si no llega `schoolMenu` o viene sin hijos (antes, sin
+  `schoolMenu`, las líneas se enviaban igualmente). El motor de reglas no necesita cambios: sin menú no hay
+  violaciones "repite lo del cole", y los límites y restricciones de la familia se siguen aplicando. En el panel de
+  reglas, las 3 líneas del cole empiezan por "Si subes menús escolares:".
+
+- **Extracción (Paso 1)**: `SchoolMealEntry` tiene un campo opcional `dinnerSuggestion`, la propuesta de
+  cena del menú ("proposta de sopar", "propuesta de cena", "per sopar"…) copiada tal cual, sin traducir (el prompt
+  de extracción lista esas variantes para que Gemini la reconozca en cualquier idioma). Si el menú no la trae se
+  omite y nunca se inventa. Cada menú se extrae por separado, con el nombre del hijo/a que el cliente indica.
+- **Contexto para el LLM**: `formatSchoolDay`/`formatSchoolWeek` pasan el menú escolar a texto, un día por
+  bloque, con lo que come cada hijo/a (proteína e ingredientes) y su "Propuesta de cena del cole" si la hay.
+  `SCHOOL_CONTEXT_LINES` son las instrucciones y **valen para cualquier número de hijos e hijas** (ya no existe
+  `REFERENCE_CHILD`): comida de adultos parecida a la del primero de la lista, cena inspirada en la propuesta de
+  cena que traiga cualquier menú, y regla de no repetir obligatoria sobre todos. Lo comparten la planificación y
+  la sustitución. El orden de la lista es el de los hijos e hijas de la familia (el planificador sube los menús
+  en ese orden).
+- **Es orientación para el LLM, no una regla del motor**: el "parecido" no se valida con código. Lo que sí sigue
+  siendo determinista es el no repetir en la cena (contra TODOS los menús escolares del día) y los límites
+  semanales. Ojo: como la comida de los adultos copia la proteína del cole, si el primer hijo come carne roja ese
+  día, esa comida se lleva el único cupo semanal de carne roja (si la familia lo ha limitado).
+- **De paso se arregló** que el prompt de "Buscar alternativas" decía "(se te da como contexto)" refiriéndose a
+  la comida escolar, pero nunca la incluía. Ahora recibe `formatSchoolDay` de ese día.
+- **Probado sin ningún menú** (14-oct-2026, Gemini y Tavily reales): semana completa en ~69 s con las reglas de la familia
+  (máx. huevo/ave/pescado 2, carne roja 1, ≥4 legumbres, ≤40 min, sin tofu ni champiñones, solo merluza y salmón):
+  0 violaciones y todas las reglas cumplidas; en Chrome, "Generar" habilitado, 14 platos y "Cambiar" con alternativas.
+- **Probado** (14-oct-2026, Gemini y Tavily reales, Postgres real): con dos hijos llamados "Lucía" y "Mateo" (PDF
+  sintéticos), la extracción leyó los dos nombres tal cual, las 5 propuestas de cena del primero y ninguna del
+  segundo; la comida de los adultos de lunes a viernes siguió el tipo de plato del primero los 5 días, 0
+  violaciones. Antes de generalizar, el mismo recorrido con los nombres fijos daba el mismo resultado. **No se ha
+  probado con menús escolares reales.**
 
 ### Cookidoo: búsqueda aparte (opción B, elegida por el usuario por coste de Tavily)
 
@@ -820,12 +839,12 @@ en **Perfil → Familias → "Reglas del menú de esta familia"** (`FamilyRulesE
   catálogo con el mismo `checkDishRestrictions`; con reglas muy estrictas el catálogo (~25 platos) puede no
   alcanzar y el motor devuelve violaciones (es lo esperado: las muestra, no las oculta).
 - **Fuera de las reglas por familia, a propósito**: `PEOPLE_BY_DAY` (personas por día) y todo lo del menú
-  escolar (Aina, Iria, "no repetir en la cena"). Las personas por día afectan a las cantidades de las
+  escolar ("no repetir en la cena" y compañía). Las personas por día afectan a las cantidades de las
   recetas ya guardadas: para hacerlas editables habría que guardar las personas en cada semana, o
   las semanas viejas mostrarían cantidades que no cuadran. Las semanas ya guardadas no cambian si se
   editan las reglas (se validaron con las de su momento).
 - **Probado de verdad** (14-oct-2026, Gemini + Tavily + Postgres/Supabase reales, con dos PDF sintéticos en
-  catalán/castellano de Aina e Iria y una identidad y dos familias desechables, borradas después con SQL):
+  catalán/castellano y una identidad y dos familias desechables, borradas después con SQL):
   - Familia con reglas por defecto: semana completa en ~69 s, 0 violaciones, ninguna prohibición rota.
   - Otra familia con reglas estrictas (0 carne roja, solo pollo/pavo, 1 huevo, 2 pescado, ≥5 legumbre, ≤30 min,
     sin calabacín ni coliflor, solo merluza/salmón): ~138 s; **todas** las reglas se cumplen (el motor devolvió
@@ -847,7 +866,7 @@ en **Perfil → Familias → "Reglas del menú de esta familia"** (`FamilyRulesE
     sugerencias "+ marisco…". La familia que ya existía sin reglas guardadas conserva las de siempre. La
     familia de prueba "OtraFamilia" de la BD real se dejó vacía con SQL.
   - **No probado**: el login completo con Google (necesita una cuenta real; sí la lógica de familias y
-    sesiones que usa) y los PDF reales de Aina e Iria (los de la prueba son sintéticos).
+    sesiones que usa) y los menús escolares reales (los de las pruebas son sintéticos).
 - **Visto en la prueba real, sin tocar a propósito** (cambiarlo altera el prompt, y se pidió que fuera idéntico
   al de antes): el Paso 4 a veces deja como título el de la página web ("Cómo hacer hamburguesas caseras
   perfectas", "Pollo al horno de Karlos Arguiñano…") en vez de un nombre corto de plato.
@@ -1102,14 +1121,18 @@ verlo en Guardados → abrir esa semana guardada de solo lectura. Lo que sigue f
 real, no ya de prototipo:
 
 - **Persistencia**: ya resuelta con Supabase (ver "Historial"). Falta solo configurar `DATABASE_URL` en Vercel.
-- Gestión de niños (Aina e Iria siguen fijas en el código) y roles/invitaciones en las familias. Ya hay
+- Roles/invitaciones en las familias (los hijos e hijas ya son de cada familia). Ya hay
   login con Google (ver "Autenticación") y familias (ver "Familias"), pero cualquier miembro puede editar
   o borrar la familia, y añadir a alguien es solo escribir su correo (sin invitación ni aceptación).
   El acceso a la app lo decide el administrador (ver "Administración y lista de acceso").
-- **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se
-  retoca con dos botones-pastilla dentro del chip (ver "Rutas" arriba) — funciona, pero es la
-  mínima UI posible para el contrato del backend (un campo de formulario por niña), no un diseño
-  pensado para más de dos hijos o para hacerlo más evidente a la primera.
+- **Supuestos del hogar original que aún quedan** (la app ya no tiene nombres fijos, pero estas decisiones siguen
+  siendo del hogar del autor y habría que hacerlas configurables por familia para otra gente): (1) **cuántas
+  personas comen cada día** (`PEOPLE_BY_DAY`: 1 de lunes a jueves, 2 el viernes, 4 el fin de semana; afecta a las
+  cantidades de las recetas y a la lista de la compra; hacerlo editable exigiría guardar las personas en cada
+  semana para que las ya guardadas no muestren cantidades que no cuadran); (2) **Thermomix y suscripción a
+  Cookidoo** (el Paso 4 favorece Cookidoo y hay una búsqueda aparte solo en `cookidoo.es`, y el RulesPanel lo
+  menciona); (3) **la lista de sitios de recetas** (`RECIPE_SOURCES`, en castellano) y el idioma/formato de los
+  menús escolares (pensado para menús de comedor escolar en castellano o catalán).
 - **Cuota del nivel gratuito de Gemini.** Con la clave real puesta en este proyecto, probar varias
   veces seguidas (varias generaciones/sustituciones en poco tiempo) puede toparse con el límite de
   peticiones por minuto — los clientes reintentan automáticamente (`server/clients/{gemini,tavily}.ts`),

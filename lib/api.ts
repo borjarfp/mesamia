@@ -119,8 +119,8 @@ export async function createFamily(name: string): Promise<{ family: Family }> {
   return parseOrThrow(response)
 }
 
-// PATCH /api/families/[id] — lo único editable: el nombre y los correos con acceso (lista completa).
-export async function updateFamily(id: string, input: { name: string; members: string[] }): Promise<{ family: Family }> {
+// PATCH /api/families/[id] — lo editable: el nombre, los correos con acceso y los hijos e hijas (listas completas; solo se cambia lo que se envíe).
+export async function updateFamily(id: string, input: { name?: string; members?: string[]; children?: string[] }): Promise<{ family: Family }> {
   const response = await apiFetch(`/api/families/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   return parseOrThrow(response)
 }

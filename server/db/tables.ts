@@ -9,6 +9,8 @@ import { DayNameSchema, DifficultySchema, DishSourceKindSchema, MealChangeKindSc
 export const FamilyRowSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  // Nombres de los hijos e hijas de la familia. .default([]): ficheros anteriores no lo traen.
+  children: z.array(z.string()).default([]),
   created_at: z.string(),
 })
 export type FamilyRow = z.infer<typeof FamilyRowSchema>

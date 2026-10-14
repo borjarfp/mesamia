@@ -90,7 +90,7 @@ const fitsDay = (candidate: FakeDish, day: DayName, rules: FamilyRules, meal: Me
 
 type SchoolDay = { child: string; category: ProteinCategory; ingredients: string[] }
 
-// Bloques de server/prompts/schoolContext.ts → formatSchoolDay: "lunes:\n- Aina come en el cole: "X" (legumbre; lentejas, zanahoria)."
+// Bloques de server/prompts/schoolContext.ts → formatSchoolDay: "lunes:\n- Lucía come en el cole: "X" (legumbre; lentejas, zanahoria)."
 function parseSchoolDays(prompt: string): Map<DayName, SchoolDay[]> {
   const days = new Map<DayName, SchoolDay[]>()
   let current: DayName | null = null
@@ -121,9 +121,9 @@ function fakeWeekPlan(prompt: string, rules: FamilyRules): z.infer<typeof WeekPl
     const remainingAfter = order.length - index - 1
     const legumesNeeded = (rules.weekly.minLegumbre ?? 0) - (counts.legumbre ?? 0)
     const mustBeLegume = legumesNeeded > remainingAfter
-    // La comida L-V imita la categoría de lo que come Aina (o la primera niña) ese día, como pide
+    // La comida L-V imita la categoría de lo que come el PRIMER hijo o hija de la lista ese día, como pide
     // SCHOOL_CONTEXT_LINES; la cena prueba primero legumbre/pescado/huevo.
-    const lunchCategory = meal === 'comida' ? school.get(day)?.find(entry => entry.child === 'Aina')?.category ?? school.get(day)?.[0]?.category : undefined
+    const lunchCategory = meal === 'comida' ? school.get(day)?.[0]?.category : undefined
     const preference: ProteinCategory[] = mustBeLegume ? ['legumbre'] : [...(lunchCategory ? [lunchCategory] : []), 'legumbre', 'pescado', 'huevo', 'ave', 'otro', 'carne_roja']
     const candidate = preference.flatMap(category => POOL[category]).find(option =>
       !used.has(option.title) && fitsDay(option, day, rules, meal) && (counts[option.proteinCategory] ?? 0) < (MAX[option.proteinCategory] ?? Infinity) &&
@@ -166,15 +166,17 @@ function fakeAlternatives(prompt: string, count: number, rules: FamilyRules): z.
 
 // --- Extracción del menú escolar -----------------------------------------------------------------
 
-const FAKE_SCHOOL: Record<string, Array<Omit<SchoolMealEntry, 'day'>>> = {
-  Aina: [
+// Dos menús de prueba para cualquier nombre (cada familia pone los suyos): uno con propuesta de cena y otro sin ella.
+// Se elige uno u otro según el nombre, así el mismo nombre da siempre el mismo menú.
+const FAKE_SCHOOL: Record<'withDinner' | 'plain', Array<Omit<SchoolMealEntry, 'day'>>> = {
+  withDinner: [
     { title: 'Llenties estofades amb verdures', mainIngredients: ['lentejas', 'zanahoria'], proteinCategory: 'legumbre', dinnerSuggestion: 'Truita de carbassó i amanida de tomàquet' },
     { title: 'Arròs amb pollastre', mainIngredients: ['arroz', 'pollo'], proteinCategory: 'ave', dinnerSuggestion: 'Salmó a la planxa amb verdures al vapor' },
     { title: 'Lluç al forn amb patates', mainIngredients: ['merluza', 'patata'], proteinCategory: 'pescado', dinnerSuggestion: 'Cigrons saltejats amb espinacs' },
     { title: 'Truita de patates', mainIngredients: ['huevo', 'patata'], proteinCategory: 'huevo', dinnerSuggestion: 'Crema de verdures i pollastre al forn' },
     { title: 'Macarrons amb tomàquet', mainIngredients: ['pasta', 'tomate'], proteinCategory: 'otro', dinnerSuggestion: 'Lluç amb mongeta tendra' },
   ],
-  Iria: [
+  plain: [
     { title: 'Puré de verduras con pollo', mainIngredients: ['verduras', 'pollo'], proteinCategory: 'ave' },
     { title: 'Crema de calabaza', mainIngredients: ['calabaza'], proteinCategory: 'otro' },
     { title: 'Puré de lentejas', mainIngredients: ['lentejas'], proteinCategory: 'legumbre' },
@@ -184,8 +186,9 @@ const FAKE_SCHOOL: Record<string, Array<Omit<SchoolMealEntry, 'day'>>> = {
 }
 
 function fakeSchoolMenu(prompt: string): z.infer<typeof ChildSchoolMenuSchema> {
-  const child = prompt.match(/El campo "child" de tu respuesta debe ser exactamente "(.+?)"/)?.[1] ?? 'Aina'
-  const meals = (FAKE_SCHOOL[child] ?? FAKE_SCHOOL.Aina.map(({ dinnerSuggestion: _unused, ...meal }) => meal)).map((meal, index) => ({ day: WEEKDAYS[index], ...meal }))
+  const child = prompt.match(/El campo "child" de tu respuesta debe ser exactamente "(.+?)"/)?.[1] ?? 'Hijo'
+  const kind = [...child].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 === 0 ? 'withDinner' : 'plain'
+  const meals = FAKE_SCHOOL[kind].map((meal, index) => ({ day: WEEKDAYS[index], ...meal }))
   // Fechas = la semana que se planifica, para que no salte el aviso de "no coincide".
   const week = prompt.match(/semana del lunes (\d{4}-\d{2}-\d{2}) al viernes (\d{4}-\d{2}-\d{2})/)
   return { child, meals, ...(week ? { menuStartDate: week[1], menuEndDate: week[2] } : {}) }

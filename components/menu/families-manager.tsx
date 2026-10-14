@@ -9,6 +9,9 @@ import { FamilyRulesEditor } from '@/components/menu/family-rules-editor'
 import { Input } from '@/components/ui/input'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Mismo criterio que el servidor: sin distinguir mayúsculas ni tildes.
+const plain = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+const sameName = (a: string, b: string) => plain(a) === plain(b)
 const errorMessage = (error: unknown) => error instanceof ApiError ? error.message : 'Ha ocurrido un error inesperado.'
 
 type Busy = 'save' | 'delete' | 'select' | null
@@ -18,13 +21,15 @@ type Busy = 'save' | 'delete' | 'select' | null
 function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: { family: Family; active: boolean; canDelete: boolean; myEmail: string; onSaved: (family: Family) => void; onDeleted: (id: string) => void }) {
   const [name, setName] = useState(family.name)
   const [members, setMembers] = useState(family.members)
+  const [kids, setKids] = useState(family.children)
+  const [newKid, setNewKid] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(active) // la familia activa es el panel principal: sus reglas empiezan desplegadas
-  const dirty = name.trim() !== family.name || members.join('|') !== family.members.join('|')
+  const dirty = name.trim() !== family.name || members.join('|') !== family.members.join('|') || kids.join('|') !== family.children.join('|')
 
   function addMember(event: FormEvent) {
     event.preventDefault()
@@ -33,11 +38,20 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
     if (members.includes(email)) return setError('Ese correo ya está en la familia.')
     setMembers([...members, email]); setNewEmail(''); setError(null); setSaved(false)
   }
+  function addKid(event: FormEvent) {
+    event.preventDefault()
+    const kid = newKid.trim()
+    if (!kid) return
+    if (kid.length > 30) return setError('Cada nombre admite como máximo 30 caracteres.')
+    if (kids.some(item => sameName(item, kid))) return setError('Ya hay un hijo o hija con ese nombre.')
+    if (kids.length >= 10) return setError('Admite como máximo 10 hijos o hijas.')
+    setKids([...kids, kid]); setNewKid(''); setError(null); setSaved(false)
+  }
   async function run(kind: Exclude<Busy, null>, task: () => Promise<void>) {
     setBusy(kind); setError(null)
     try { await task() } catch (e) { setError(errorMessage(e)) } finally { setBusy(null) }
   }
-  const save = () => run('save', async () => { const { family: updated } = await updateFamily(family.id, { name: name.trim(), members }); onSaved(updated); setSaved(true) })
+  const save = () => run('save', async () => { const { family: updated } = await updateFamily(family.id, { name: name.trim(), members, children: kids }); onSaved(updated); setSaved(true) })
   const remove = () => run('delete', async () => { await deleteFamily(family.id); onDeleted(family.id) })
   const use = () => run('select', async () => { await selectFamily(family.id); window.location.assign('/planificador') })
 
@@ -56,6 +70,12 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
       <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">{members.map(email => <li key={email} className="flex items-center justify-between gap-2 px-3 py-2 text-sm"><span className="min-w-0 truncate">{email}{email === myEmail && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tú</span>}</span>{email !== myEmail && <button type="button" aria-label={`Quitar a ${email}`} onClick={() => { setMembers(members.filter(item => item !== email)); setSaved(false) }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"><X className="size-4" /></button>}</li>)}</ul>
       <form onSubmit={addMember} className="flex gap-2"><Input type="email" value={newEmail} placeholder="correo@gmail.com" onChange={event => setNewEmail(event.target.value)} /><Button type="submit" variant="outline"><Plus />Añadir</Button></form>
       <p className="text-xs text-slate-500">Deben entrar con la cuenta de Google de ese correo.</p>
+    </div>
+    <div className="mt-4 space-y-2">
+      <p className="text-sm font-medium text-slate-700">Hijos e hijas</p>
+      {kids.length > 0 && <ul className="flex flex-wrap gap-1.5">{kids.map(kid => <li key={kid} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 py-1 pl-3 pr-1.5 text-sm text-emerald-900">{kid}<button type="button" aria-label={`Quitar a ${kid}`} onClick={() => { setKids(kids.filter(item => item !== kid)); setSaved(false) }} className="rounded-full p-0.5 text-emerald-700/60 hover:bg-emerald-100 hover:text-red-600"><X className="size-3.5" /></button></li>)}</ul>}
+      <form onSubmit={addKid} className="flex gap-2"><Input value={newKid} maxLength={30} placeholder="Nombre de tu hijo o hija" onChange={event => setNewKid(event.target.value)} /><Button type="submit" variant="outline"><Plus />Añadir</Button></form>
+      <p className="text-xs text-slate-500">Para subir el menú del cole o la guardería de cada uno en el planificador.</p>
     </div>
     </div>
     <div className={panel ? 'flex flex-1 flex-col' : undefined}>

@@ -27,6 +27,7 @@ CREATE TYPE meal_change_kind AS ENUM ('alternativa', 'manual');
 CREATE TABLE families (
   id          uuid        PRIMARY KEY,
   name        text        NOT NULL,
+  children    jsonb       NOT NULL DEFAULT '[]',   -- nombres de sus hijos e hijas (a quienes se asocian los menús escolares)
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 

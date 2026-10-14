@@ -7,7 +7,8 @@ import { PROTEIN_CATEGORIES, WEEKDAYS, type DayName, type MealSlot, type RuleVio
 // Sustitución de un plato concreto: se le da a Gemini el resto de la semana ya fijado (para que no
 // rompa los límites semanales) y se le piden `count` alternativas de una sola vez — igual que en el
 // frontend mock, donde "Cambiar" ofrece 3 opciones a elegir, no una sola.
-export function buildSubstitutionSystemInstruction(count: number, rules: FamilyRules): string {
+// `hasSchoolMenu`: false sin menú escolar (es opcional): se omiten las reglas que hablan de él.
+export function buildSubstitutionSystemInstruction(count: number, rules: FamilyRules, hasSchoolMenu = true): string {
   return [
     `Propón exactamente ${count} alternativas distintas de plato para UN único hueco de un menú semanal familiar, manteniendo fijo el resto de la semana que se te da como contexto.`,
     'Para cada alternativa define:',
@@ -22,8 +23,7 @@ export function buildSubstitutionSystemInstruction(count: number, rules: FamilyR
     ...buildWeeklyLimitSummary(rules),
     ...buildRestrictionLines(rules),
     ...buildNotesLines(rules),
-    'Si el hueco es de lunes a viernes, aplica también esto (se te da el menú escolar de ese día):',
-    ...SCHOOL_CONTEXT_LINES.map(line => `  ${line}`),
+    ...(hasSchoolMenu ? ['Si el hueco es de lunes a viernes, aplica también esto (se te da el menú escolar de ese día):', ...SCHOOL_CONTEXT_LINES.map(line => `  ${line}`)] : []),
     'Devuelve exclusivamente el JSON solicitado.',
   ].join('\n')
 }
@@ -43,7 +43,7 @@ export function buildSubstitutionUserPrompt(
   ]
   // Antes este prompt decía "se te da como contexto" la comida escolar, pero nunca se incluía:
   // Gemini proponía a ciegas y solo el motor de reglas lo cazaba después (con un reintento).
-  if (schoolMenu && WEEKDAYS.includes(day)) parts.push('Menú escolar de ese día:', formatSchoolDay(schoolMenu, day))
+  if (schoolMenu && schoolMenu.children.length > 0 && WEEKDAYS.includes(day)) parts.push('Menú escolar de ese día:', formatSchoolDay(schoolMenu, day))
   if (tasteContext) {
     parts.push(
       `Historial de las ${TASTE_HISTORY_WEEKS} semanas anteriores que guardó la familia, con lo que cambiaron de cada propuesta:`,

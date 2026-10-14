@@ -108,6 +108,7 @@ export const ensureSchema = () => schemaReady ??= inTransaction(async client => 
   await client.query('CREATE TABLE IF NOT EXISTS families (id uuid PRIMARY KEY, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())')
   await client.query('CREATE TABLE IF NOT EXISTS family_members (family_id uuid NOT NULL REFERENCES families (id) ON DELETE CASCADE, email text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (family_id, email))')
   await client.query('CREATE INDEX IF NOT EXISTS family_members_email_idx ON family_members (email)')
+  await client.query("ALTER TABLE families ADD COLUMN IF NOT EXISTS children jsonb NOT NULL DEFAULT '[]'")
   await client.query('CREATE TABLE IF NOT EXISTS family_rules (family_id uuid PRIMARY KEY REFERENCES families (id) ON DELETE CASCADE, rules jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())')
   await client.query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS family_id uuid REFERENCES families (id) ON DELETE CASCADE')
   await client.query('CREATE INDEX IF NOT EXISTS saved_weeks_family_id_idx ON saved_weeks (family_id, created_at DESC)')

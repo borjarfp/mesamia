@@ -3,7 +3,7 @@ import { FISH_CATALOG, MEAT_CATALOG, type FamilyRules } from '@/server/rules/fam
 
 // Las reglas de UNA familia agrupadas para mostrarlas (RulesPanel). Salen del mismo objeto
 // (FamilyRules) que usa el motor de reglas y los prompts, así que lo que se ve es lo que se aplica. Las
-// líneas del menú escolar (Aina e Iria) son fijas: no forman parte de las reglas por familia.
+// líneas del menú escolar son fijas: no forman parte de las reglas por familia.
 export type RuleGroup = { title: string; rules: string[] }
 
 export function ruleGroupsFor(rules: FamilyRules): RuleGroup[] {
@@ -39,9 +39,9 @@ export function ruleGroupsFor(rules: FamilyRules): RuleGroup[] {
       title: 'Lunes a viernes',
       rules: [
         ...weekdayTime,
-        'La comida de los adultos se parece a la que come Aina ese día en el cole (mismo tipo de plato).',
-        'La cena se inspira en la "proposta de sopar" del menú de Aina, como sugerencia.',
-        'La cena no repite el tipo de proteína ni los ingredientes de lo que Aina e Iria han comido ese día en el cole.',
+        'Si subes menús escolares: la comida de los adultos se parece a la que comen los niños ese día en el cole (mismo tipo de plato).',
+        'Si subes menús escolares: la cena se inspira en la propuesta de cena del menú (si la trae), como sugerencia.',
+        'Si subes menús escolares: la cena no repite el tipo de proteína ni los ingredientes de lo que los niños han comido ese día en el cole.',
         ...(weekdayTime.length > 0 ? [`El fin de semana no tiene límite de tiempo${weekday.onlyEasy ? ' ni de dificultad' : ''}.`] : ['Sin límite de tiempo ni de dificultad.']),
       ],
     },

@@ -21,8 +21,8 @@ export interface FamilyStore {
   // existir las familias (family_id NULL).
   ensureForUser(email: string, defaultName: string): Promise<Family[]>
   create(name: string, creatorEmail: string): Promise<Family>
-  // Sustituye nombre y lista de miembros. null si la familia no existe.
-  update(id: string, input: { name: string; members: string[] }): Promise<Family | null>
+  // Sustituye lo que venga (nombre, miembros y/o hijos e hijas). null si la familia no existe.
+  update(id: string, input: { name?: string; members?: string[]; children?: string[] }): Promise<Family | null>
   // Reglas del menú de la familia; los valores por defecto si no tiene ninguna guardada.
   getRules(familyId: string): Promise<FamilyRules>
   setRules(familyId: string, rules: FamilyRules): Promise<void>
@@ -34,7 +34,7 @@ const normalize = (email: string) => email.trim().toLowerCase()
 
 function toFamily(db: LocalDatabase, row: LocalDatabase['families'][number]): Family {
   const members = db.family_members.filter(member => member.family_id === row.id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.email.localeCompare(b.email)).map(member => member.email)
-  return { id: row.id, name: row.name, members, createdAt: row.created_at }
+  return { id: row.id, name: row.name, members, children: row.children, createdAt: row.created_at }
 }
 
 function familiesOf(db: LocalDatabase, email: string): Family[] {
@@ -44,7 +44,7 @@ function familiesOf(db: LocalDatabase, email: string): Family[] {
 
 function addFamily(db: LocalDatabase, name: string, creatorEmail: string): LocalDatabase['families'][number] {
   const now = new Date().toISOString()
-  const row = { id: randomUUID(), name, created_at: now }
+  const row = { id: randomUUID(), name, children: [] as string[], created_at: now }
   db.families.push(row)
   db.family_members.push({ family_id: row.id, email: creatorEmail, created_at: now })
   // Una familia nueva empieza SIN reglas (se guardan vacías: sin fila se aplicarían las de siempre).
@@ -78,17 +78,20 @@ function createLocalFamilyStore(file = DATA_FILE): FamilyStore {
         return toFamily(db, row)
       })
     },
-    update(id, { name, members }) {
+    update(id, { name, members, children }) {
       return serialized(async () => {
         const db = await load(file)
         const row = db.families.find(item => item.id === id)
         if (!row) return null
-        row.name = name
-        const wanted = new Set(members.map(normalize))
-        const kept = db.family_members.filter(member => member.family_id !== id || wanted.has(member.email))
-        const have = new Set(kept.filter(member => member.family_id === id).map(member => member.email))
-        const now = new Date().toISOString()
-        db.family_members = [...kept, ...[...wanted].filter(email => !have.has(email)).map(email => ({ family_id: id, email, created_at: now }))]
+        if (name !== undefined) row.name = name
+        if (children !== undefined) row.children = children
+        if (members !== undefined) {
+          const wanted = new Set(members.map(normalize))
+          const kept = db.family_members.filter(member => member.family_id !== id || wanted.has(member.email))
+          const have = new Set(kept.filter(member => member.family_id === id).map(member => member.email))
+          const now = new Date().toISOString()
+          db.family_members = [...kept, ...[...wanted].filter(email => !have.has(email)).map(email => ({ family_id: id, email, created_at: now }))]
+        }
         await persist(file, db)
         return toFamily(db, row)
       })

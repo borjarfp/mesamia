@@ -13,10 +13,10 @@ export type SchoolMenuUpload = {
   files: SchoolMenuFile[]
 }
 
-// Paso 1 del pipeline: OCR + estructuración. Una llamada a Gemini por niña (no una sola llamada
+// Paso 1 del pipeline: OCR + estructuración. Una llamada a Gemini por hijo o hija (no una sola llamada
 // con todos los documentos mezclados) — el cliente ya nos dice de forma fiable a quién pertenece
 // cada archivo, así que no hace falta pedirle a Gemini que además adivine esa atribución; así se
-// evita que confunda el menú de una niña con el de la otra.
+// evita que confunda el menú de un hijo o hija con el de otro.
 // `weekStart`: la semana que se planifica, ver buildSchoolExtractionUserPrompt.
 export async function extractSchoolMenu(uploads: SchoolMenuUpload[], weekStart?: string): Promise<SchoolMenuExtraction> {
   const children = await Promise.all(

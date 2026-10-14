@@ -26,7 +26,7 @@ export async function planWeek(schoolMenu: SchoolMenuExtraction, rules: FamilyRu
     const draft = await generateStructured({
       model: GEMINI_MODEL_PRO,
       schema: WeekPlanDraftSchema,
-      systemInstruction: buildWeekPlanningSystemInstruction(rules),
+      systemInstruction: buildWeekPlanningSystemInstruction(rules, schoolMenu.children.length > 0),
       contents: [{ role: 'user', parts: [textPart(buildWeekPlanningUserPrompt(schoolMenu, tasteContext, violations))] }],
       // Un poco más de determinismo en la planificación que en la extracción/consolidación: aquí
       // interesa que respete las reglas de forma consistente entre reintentos.

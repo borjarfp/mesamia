@@ -95,7 +95,7 @@ export async function substituteDish(input: SubstituteInput): Promise<Substitute
     const draft = await generateStructured({
       model: GEMINI_MODEL_PRO,
       schema: AlternativesDraftSchema,
-      systemInstruction: buildSubstitutionSystemInstruction(count, input.rules),
+      systemInstruction: buildSubstitutionSystemInstruction(count, input.rules, schoolMenu.children.length > 0),
       contents: [{ role: 'user', parts: [textPart(buildSubstitutionUserPrompt(day, meal, currentWeek, violations, input.tasteContext, input.schoolMenu))] }],
       // Más variedad entre las alternativas que en la planificación completa de la semana.
       temperature: 0.6,

@@ -30,15 +30,15 @@ export const SchoolMealEntrySchema = z.object({
   title: z.string().describe('Nombre del plato tal como aparece en el menú escolar'),
   mainIngredients: z.array(z.string()).describe('Ingredientes principales, en minúsculas y sin adjetivos'),
   proteinCategory: ProteinCategorySchema,
-  // "Proposta de sopar" / propuesta de cena que algunos menús escolares (el de Aina) traen para
-  // cada día, pensada para complementar la comida del cole. Tal cual aparece (puede estar en
-  // catalán). La IA la usa como inspiración para la cena de ese día, no es obligatoria.
+  // Propuesta de cena ("proposta de sopar" en catalán) que algunos menús escolares traen para cada
+  // día, pensada para complementar la comida del cole. Tal cual aparece (puede estar en catalán u otro
+  // idioma). La IA la usa como inspiración para la cena de ese día, no es obligatoria.
   dinnerSuggestion: z.string().optional().describe('La "proposta de sopar" o propuesta de cena de ese día, tal como aparece en el menú; omítelo si el menú no trae ninguna'),
 })
 export type SchoolMealEntry = z.infer<typeof SchoolMealEntrySchema>
 
 export const ChildSchoolMenuSchema = z.object({
-  child: z.string().describe('Nombre de la niña a la que pertenece este menú (p. ej. "Aina" o "Iria")'),
+  child: z.string().describe('Nombre del hijo o hija al que pertenece este menú'),
   // Fechas reales del menú extraído, si el documento las indica. Sirven para avisar si el menú
   // subido no es de la semana que se está planificando (lib/school-dates.ts); sin ellas no se puede
   // comprobar. Las lee Gemini, pero la comparación la hace el código.
@@ -48,8 +48,8 @@ export const ChildSchoolMenuSchema = z.object({
 })
 export type ChildSchoolMenu = z.infer<typeof ChildSchoolMenuSchema>
 
-// JSON "unificado" que pide el enunciado: un único documento que cubre a ambas niñas, aunque cada
-// una pueda tener un menú distinto (cole vs. guardería).
+// JSON "unificado": un único documento que cubre a todos los hijos e hijas de la familia, aunque cada
+// uno pueda tener un menú distinto (cole vs. guardería).
 export const SchoolMenuExtractionSchema = z.object({
   children: z.array(ChildSchoolMenuSchema),
 })
@@ -61,9 +61,9 @@ export type SchoolMenuExtraction = z.infer<typeof SchoolMenuExtractionSchema>
 
 // Los 14 huecos que planifica el sistema: comida + cena de los 7 días. El menú escolar (Paso 1)
 // NUNCA ocupa un hueco ni se muestra — es solo contexto para que la cena de cada día de colegio no
-// repita lo que las niñas ya han comido (ver server/rules/engine.ts). La comida de lunes a viernes
-// es una comida real, generada para los padres — a petición explícita: "no me interesa saber lo
-// que comen mis hijas, solo quiero que genere comidas para nosotros".
+// repita lo que los niños ya han comido (ver server/rules/engine.ts). La comida de lunes a viernes
+// es una comida real, generada para los adultos de la casa: lo que comen los niños en el cole es
+// solo contexto, no se muestra.
 export const PLANNED_SLOTS: ReadonlyArray<{ day: DayName; meal: MealSlot }> = DAY_NAMES.flatMap(day => [
   { day, meal: 'comida' as const },
   { day, meal: 'cena' as const },
@@ -135,7 +135,7 @@ export type RecipeSelection = z.infer<typeof RecipeSelectionSchema>
 
 // Ya no existe 'escolar': el menú del cole nunca ocupa un hueco de la semana final ni se muestra —
 // es solo contexto de las 14 llamadas de planificación (ver PLANNED_SLOTS), para que las cenas de
-// los días de cole no repitan lo que las niñas ya han comido. Todo plato final es 'ia' o 'web'.
+// los días de cole no repitan lo que los niños ya han comido. Todo plato final es 'ia' o 'web'.
 export const DishSourceKindSchema = z.enum(['ia', 'web'])
 export type DishSourceKind = z.infer<typeof DishSourceKindSchema>
 
@@ -215,4 +215,5 @@ export const HistoryEntrySchema = z.object({
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>
 
 // Familia: agrupa a las personas (por correo de Google) que comparten las semanas guardadas.
-export type Family = { id: string; name: string; members: string[]; createdAt: string }
+// `children`: los hijos e hijas de la familia (solo sus nombres), a quienes se asocian los menús escolares que sube.
+export type Family = { id: string; name: string; members: string[]; children: string[]; createdAt: string }

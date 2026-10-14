@@ -20,8 +20,8 @@ export function buildSchoolExtractionSystemInstruction(): string {
   ].join('\n')
 }
 
-// El nombre de la niña no se puede fiar a que el propio documento lo mencione con claridad; el
-// cliente indica a qué niña pertenece cada archivo subido, y aquí se lo recordamos a Gemini para
+// El nombre del hijo o hija no se puede fiar a que el propio documento lo mencione con claridad; el
+// cliente indica a quién pertenece cada archivo subido, y aquí se lo recordamos a Gemini para
 // que etiquete correctamente el resultado de ese documento en concreto.
 // `weekStart` (YYYY-MM-DD, lunes de la semana que se planifica): para elegir la semana correcta de
 // un menú mensual y deducir el año de fechas sin año. No se le pide a Gemini que compare fechas:
