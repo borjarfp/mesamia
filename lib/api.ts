@@ -22,6 +22,7 @@ function apiFetch(url: string, init: RequestInit & { headers?: Record<string, st
 
 async function parseOrThrow<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null)
+  if (response.status === 401 && typeof window !== 'undefined') window.location.assign('/login')
   if (!response.ok) {
     const message = body?.error?.message ?? `Error inesperado (${response.status}).`
     throw new ApiError(message, body?.error?.code)

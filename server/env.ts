@@ -35,3 +35,29 @@ export function getTavilyApiKey(): string {
 // 2 (planificación) — es la única llamada donde de verdad importa la diferencia de capacidad.
 export const GEMINI_MODEL_FLASH = process.env.GEMINI_MODEL_FLASH || 'gemini-2.5-flash'
 export const GEMINI_MODEL_PRO = process.env.GEMINI_MODEL_PRO || 'gemini-2.5-flash'
+
+// Inicio de sesión con Google (server/auth/). AUTH_SECRET firma la cookie de sesión (mínimo 32
+// caracteres; generar con `openssl rand -base64 32`). GOOGLE_CLIENT_ID/SECRET salen de una
+// credencial "ID de cliente de OAuth" (aplicación web) en Google Cloud Console.
+export function getAuthSecret(): string {
+  const secret = requireEnv('AUTH_SECRET')
+  if (secret.length < 32) throw new ConfigError('AUTH_SECRET debe tener al menos 32 caracteres (openssl rand -base64 32).')
+  return secret
+}
+
+export function getGoogleClientId(): string {
+  return requireEnv('GOOGLE_CLIENT_ID')
+}
+
+export function getGoogleClientSecret(): string {
+  return requireEnv('GOOGLE_CLIENT_SECRET')
+}
+
+// Lista opcional de correos (separados por comas) que pueden entrar. Los datos son de un único
+// hogar, no por usuario: si se deja vacía, entra CUALQUIER cuenta de Google.
+export function getAllowedEmails(): string[] {
+  return (process.env.AUTH_ALLOWED_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+}
