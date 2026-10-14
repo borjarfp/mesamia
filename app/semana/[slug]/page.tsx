@@ -4,6 +4,7 @@ import { ChevronLeft, Utensils } from 'lucide-react'
 import { getHistoryStore } from '@/server/history/store'
 import { runWithTestMode } from '@/server/test-mode'
 import { TEST_MODE_PARAM } from '@/lib/test-mode-constants'
+import { ProfileMenu } from '@/components/menu/profile-menu'
 import { PageShell } from '@/components/menu/page-shell'
 import { DeleteWeekButton } from '@/components/menu/delete-week-button'
 import { SavedWeekTabs } from '@/components/menu/saved-week-tabs'
@@ -32,7 +33,7 @@ export default async function SavedWeekPage({ params, searchParams }: { params: 
   return <PageShell>
     <header className="px-5 pb-4 pt-8 sm:px-8">
       <div className="mb-4 flex items-center justify-between gap-3 print:hidden"><Link href="/guardados" className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-800"><ChevronLeft className="size-4" />Volver</Link><DeleteWeekButton id={entry.id} label={entry.label} redirectTo="/guardados" /></div>
-      <div className="mb-6 flex items-center gap-2"><div className="flex size-9 items-center justify-center rounded-xl bg-emerald-600 text-white"><Utensils className="size-5" /></div><span className="font-semibold tracking-tight">Mesa<span className="text-emerald-600">Mía</span></span></div>
+      <div className="mb-6 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><div className="flex size-9 items-center justify-center rounded-xl bg-emerald-600 text-white"><Utensils className="size-5" /></div><span className="font-semibold tracking-tight">Mesa<span className="text-emerald-600">Mía</span></span></div><ProfileMenu /></div>
       <p className="mb-1 text-sm font-medium text-emerald-600">Semana guardada</p>
       <h1 className="text-3xl font-semibold tracking-tight">{entry.label}</h1>
       <p className="mt-1 text-sm text-slate-500">Guardada el {savedDate}</p>

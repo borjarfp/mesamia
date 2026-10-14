@@ -9,8 +9,8 @@ Estado actual: **la app funciona de verdad, de punta a punta**. El frontend (`ap
 "Backend"), que llama de verdad a Gemini y Tavily. No hay ya ningún `setTimeout` simulando una
 generación ni datos mock de una semana fija — se probó el circuito completo con claves reales:
 subir/generar → sustituir un plato → confirmar y guardar → verlo en Guardados → abrir esa semana
-guardada de solo lectura. Sigue siendo un prototipo de un único hogar sin autenticación ni base de
-datos persistente de verdad — ver "Qué falta si esto pasa a producción" al final.
+guardada de solo lectura. Hay inicio de sesión con Google (ver "Autenticación"), pero sigue siendo un
+prototipo de un único hogar: los datos no son por usuario — ver "Qué falta si esto pasa a producción" al final.
 
 ## Stack
 
@@ -71,6 +71,10 @@ lib/week-dates.ts      dayLabel() (mostrar los DayName del backend, en minúscul
 lib/utils.ts           cn() = twMerge(clsx(...))
 public/                iconos e imágenes placeholder
 app/api/**/route.ts    Endpoints del backend real — ver sección "Backend". El frontend SÍ los usa.
+app/perfil/page.tsx    Perfil de solo lectura (nombre/correo de Google). Menú: components/menu/profile-menu.tsx.
+app/login/page.tsx     Pantalla de inicio de sesión (botón "Continuar con Google"). Ver "Autenticación".
+app/api/auth/**        Login/callback de Google y logout. proxy.ts (raíz) es la puerta de todas las rutas.
+server/auth/           session.ts (JWT en cookie, jose) y google.ts (OAuth code + PKCE).
 docs/arquitectura.md   4 diagramas Mermaid (arquitectura, pipeline, recorrido del usuario, modelo de
                        datos). Actualizarlos si cambian el pipeline, las rutas o las tablas.
 server/db/             Modelo relacional del historial: schema.sql (DDL Postgres) + tables.ts (filas zod).
@@ -352,6 +356,52 @@ Handlers) encima. **Contratos completos de cada endpoint, con ejemplos de `curl`
 cliente HTTP del lado del cliente para los 6; `app/semana/[slug]/page.tsx` es la única excepción —
 como corre en el servidor, lee `server/history/store.ts` directamente en vez de hacer un `fetch` a
 su propia API.
+
+### Autenticación (login con Google)
+
+Pedido: solo pantalla de login con Google + que no se pueda entrar a ninguna página sin sesión. Los
+datos **no** son por usuario (decisión de momento): el login solo decide quién entra.
+
+- **Sin librería de auth** (ni Auth.js): flujo "authorization code" + PKCE escrito a mano en
+  `server/auth/google.ts`; `jose` firma la sesión y valida el `id_token` de Google (JWKS remoto:
+  firma, emisor, audiencia, caducidad, `email_verified`).
+- **Rutas**: `GET /api/auth/google` (guarda `state`, verifier PKCE y `next` en cookies de 10 min y
+  redirige a Google), `GET /api/auth/google/callback` (comprueba `state`, intercambia el code, aplica
+  la lista de correos y crea la sesión) y `POST /api/auth/logout` (303 a `/login`). Errores →
+  `/login?error=cancelled|state|google|forbidden|config`; `/login` los traduce a texto.
+- **Sesión**: JWT HS256 en la cookie httpOnly `mesamia_session` (SameSite=lax, `secure` en
+  producción, 30 días), firmado con `AUTH_SECRET`. Sin tabla de sesiones.
+- **`proxy.ts`** (Next 16: `middleware` se llama `proxy`; **un solo fichero, en la raíz**) verifica la
+  firma de la cookie en cada petición. Sin sesión: las páginas redirigen a
+  `/login?next=<ruta>`; `/api/**` responde `401 {error:{code:'unauthorized'}}`. Se exceptúan `/login`
+  y `/api/auth/*`. El matcher excluye `_next/static`, `_next/image` y cualquier ruta con extensión
+  (los ficheros de `public/`). Con sesión, `/login` redirige a `/planificador`. **El modo pruebas
+  (`?pruebas=1`) NO se salta el login.**
+- **Frontend**: `parseOrThrow` (`lib/api.ts`) manda a `/login` ante un 401 (sesión caducada).
+- **Menú de perfil** (`components/menu/profile-menu.tsx`, base-ui `Menu`): píldora "Perfil" **arriba a
+  la derecha** de `AppHeader` (el logo queda a la izquierda), de `/semana/[slug]` y de `/perfil` (ahí con "Volver" a la izquierda). Dos
+  opciones: "Configurar perfil" (`Menu.LinkItem` con `render={<Link href="/perfil" />}` y
+  `closeOnClick`, porque en LinkItem por defecto es `false`) y "Cerrar sesión" (crea un `<form
+  method=post>` al vuelo hacia `/api/auth/logout`; no puede ser un `<form>` envolvente porque el popup
+  va en un portal). No pide datos al servidor. Sustituyó al enlace "Cerrar sesión" suelto de la cabecera.
+- **`/perfil`** (`app/perfil/page.tsx`, Server Component): lee la sesión de la cookie
+  (`verifySessionToken`) y muestra foto de Google (o inicial), nombre y correo en `Input readOnly`,
+  con la nota de que no se pueden modificar. **No hay tabla de usuarios ni cambios de BD**: al ser
+  de solo lectura, nombre/correo/foto salen del JWT de sesión (los de cuando se inició sesión; si
+  cambian en Google, se ven al volver a entrar). Si algún día hay datos por usuario o perfil editable,
+  ahí sí hará falta una tabla `users`.
+- **`next`** pasa por `safeNextPath`: solo rutas internas que empiecen por `/`, nunca `//` ni
+  `/api/` (evita open redirect).
+- **Variables** (`server/env.ts`, plantilla en `.env.local.example`): `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` (≥32 caracteres) y `AUTH_ALLOWED_EMAILS` (opcional, correos
+  separados por comas; **vacío = cualquier cuenta de Google**). La URI de redirección que hay que
+  registrar en Google Cloud es `<origen>/api/auth/google/callback`, y se calcula del origen de la
+  petición (hay que registrar la de localhost y la de producción).
+- **Gotcha**: si falta `GOOGLE_CLIENT_ID`, `/api/auth/google` redirige a `/login?error=config` y se
+  traga la causa; el síntoma es "El inicio de sesión no está configurado en el servidor". Next solo
+  lee `.env.local` al arrancar: reiniciar `pnpm dev` tras cambiarlo.
+- **Probado** con curl y un token firmado (páginas, API, cookie falsa, `/login` con sesión, logout,
+  `state` incorrecto). **El login completo contra Google real no se probó en esa sesión.**
 
 ### Variables de entorno — nunca hardcodear claves
 
@@ -826,8 +876,9 @@ verlo en Guardados → abrir esa semana guardada de solo lectura. Lo que sigue f
 real, no ya de prototipo:
 
 - **Persistencia**: ya resuelta con Supabase (ver "Historial"). Falta solo configurar `DATABASE_URL` en Vercel.
-- Autenticación y gestión de familias/niños (hoy es de un único hogar sin usuarios; el historial es
-  una única lista global compartida por cualquiera que use la app).
+- Gestión de familias/niños y datos por usuario. Ya hay login con Google (ver "Autenticación"), pero
+  el historial sigue siendo una única lista global compartida por quien consiga entrar. Mientras
+  `AUTH_ALLOWED_EMAILS` esté vacío, entra cualquier cuenta de Google.
 - **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se
   retoca con dos botones-pastilla dentro del chip (ver "Rutas" arriba) — funciona, pero es la
   mínima UI posible para el contrato del backend (un campo de formulario por niña), no un diseño
