@@ -126,7 +126,7 @@ pasaron a ser dos páginas de verdad con URL propia, así que ya no comparten co
   **`DayCard` ya no lleva el badge "Cole"/"Fin de semana"** (a petición: "no aporta nada"), así que
   `isWeekendDay()` se eliminó.
 - **`/guardados`** — `useEffect` en el montaje llama a `listHistory()` (`GET /api/history`) y pinta
-  las semanas **de la familia activa** (ver "Familias"; `app/guardados/layout.tsx` exige familia); hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
+  las semanas **de la familia activa** (ver "Familias"); hay estados de carga/vacío/error explícitos. Cada fila enlaza a `/semana/{id real}` con `next/link`
   (`<Button render={<Link .../>} nativeButton={false}>` — ver el gotcha de `nativeButton` más
   abajo) — siempre, ya no hay un caso "Ver deshabilitado". **Cada fila tiene además una papelera**
   (`DeleteWeekButton compact`, `components/menu/delete-week-button.tsx`). Pide confirmación con
@@ -432,9 +432,17 @@ Al entrar se elige familia (o, con una sola, se usa esa). Todo lo de semanas es 
   `getTasteContext(familyId, weekStart)` solo ve las semanas de esa familia: **los gustos no se mezclan**.
   `parseOrThrow` (`lib/api.ts`) manda al selector ante un 409 `family_required`. El logout borra también
   esa cookie: al volver a entrar con varias familias hay que elegir otra vez.
-- **Puertas**: `app/planificador/layout.tsx` y `app/guardados/layout.tsx` (solo llaman a
-  `requireFamilyForPage`; una soft-navigation dentro del mismo layout no lo repite, por eso la
-  comprobación de verdad está en cada endpoint), y `/semana/[slug]`.
+- **Puertas** (y por qué NO hay un layout que lo compruebe): la comprobación de verdad, contra la BD,
+  está en cada endpoint de `/api/**` (`requireFamily`) y en `/semana/[slug]` (`requireFamilyForPage`).
+  **El "elegir familia" se decide una sola vez, al terminar el login** (`/api/auth/google/callback`:
+  con varias familias y ninguna elegida redirige a `/familias/seleccionar`). Si luego la cookie deja de
+  valer, el primer endpoint da 409 `family_required` y `parseOrThrow` manda al selector.
+  **No volver a poner un `layout.tsx` con `cookies()` + consulta a BD en `/planificador` o `/guardados`**:
+  los hacía dinámicos, y cada cambio de pantalla esperaba a la BD (~80 ms+) sin `loading`, con lo que
+  dejó de ser instantánea (antes eran páginas estáticas, precargadas por `next/link`).
+- **Rendimiento**: cada ida y vuelta a Supabase cuesta ~30 ms (~230 ms la primera de cada instancia), y
+  `requireFamily` se ejecuta en cada petición a la API, así que `listFor` (Postgres) trae familias +
+  miembros en UNA consulta (`json_agg`). Antes de añadir consultas a esa ruta, contarlas.
 - **UI**: `/familias/seleccionar` (`FamilyPicker`; con una sola familia redirige directo a
   `/planificador`, salvo `?cambiar=1`), y en `/perfil` la sección "Familias" (`FamiliesManager`): por
   familia editar nombre y correos con acceso (se guarda con "Guardar cambios"), "Usar esta familia",

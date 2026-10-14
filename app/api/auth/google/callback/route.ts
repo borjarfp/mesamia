@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { FAMILY_COOKIE, SELECT_FAMILY_PATH, resolveFamilies } from '@/server/auth/family'
 import { OAUTH_COOKIES, exchangeCodeForProfile, safeNextPath } from '@/server/auth/google'
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, createSessionToken, sessionCookieOptions } from '@/server/auth/session'
 import { getAllowedEmails } from '@/server/env'
@@ -32,7 +33,16 @@ export async function GET(request: NextRequest) {
   if (allowed.length > 0 && !allowed.includes(profile.email)) return fail('forbidden')
 
   const token = await createSessionToken(profile)
-  const response = NextResponse.redirect(new URL(safeNextPath(request.cookies.get(OAUTH_COOKIES.next)?.value), origin))
+  // Con varias familias y ninguna elegida, lo primero es elegir (una sola vez, aquí: comprobarlo en
+  // cada navegación hacía lenta la app). Si la BD falla no se bloquea el login: cada endpoint vuelve a comprobarlo.
+  let destination = safeNextPath(request.cookies.get(OAUTH_COOKIES.next)?.value)
+  try {
+    const { active } = await resolveFamilies(profile, request.cookies.get(FAMILY_COOKIE)?.value)
+    if (!active) destination = SELECT_FAMILY_PATH
+  } catch (error) {
+    console.error('No se pudieron resolver las familias al iniciar sesión:', error)
+  }
+  const response = NextResponse.redirect(new URL(destination, origin))
   response.cookies.set(SESSION_COOKIE, token, { ...sessionCookieOptions, maxAge: SESSION_MAX_AGE_SECONDS })
   for (const name of Object.values(OAUTH_COOKIES)) response.cookies.delete(name)
   return response

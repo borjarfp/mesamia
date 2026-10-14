@@ -17,7 +17,15 @@ async function loadFamilies(rows: FamilyRecord[], run: Pick<PoolClient, 'query'>
   return rows.map(row => ({ id: row.id, name: row.name, members: members.filter(member => member.family_id === row.id).map(member => member.email), createdAt: row.created_at.toISOString() }))
 }
 
-const listFor = async (email: string, run?: Pick<PoolClient, 'query'>) => loadFamilies((await (run ?? getPool()).query<FamilyRecord>('SELECT f.id, f.name, f.created_at FROM families f JOIN family_members m ON m.family_id = f.id WHERE m.email = $1 ORDER BY f.created_at', [email])).rows, run)
+// Las familias de una persona con sus miembros en UNA consulta (esto se ejecuta en cada petición a
+// la API, para comprobar la familia activa): cada ida y vuelta a Supabase cuesta ~30 ms.
+const listFor = async (email: string, run: Pick<PoolClient, 'query'> = getPool()): Promise<Family[]> => {
+  const { rows } = await run.query<FamilyRecord & { members: string[] }>(
+    `SELECT f.id, f.name, f.created_at,
+            (SELECT COALESCE(json_agg(m.email ORDER BY m.created_at, m.email), '[]'::json) FROM family_members m WHERE m.family_id = f.id) AS members
+       FROM families f WHERE EXISTS (SELECT 1 FROM family_members me WHERE me.family_id = f.id AND me.email = $1) ORDER BY f.created_at`, [email])
+  return rows.map(row => ({ id: row.id, name: row.name, members: row.members, createdAt: row.created_at.toISOString() }))
+}
 
 async function insertFamily(client: PoolClient, name: string, creatorEmail: string): Promise<string> {
   const id = randomUUID()
