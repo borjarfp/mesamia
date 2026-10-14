@@ -5,6 +5,8 @@ import { DATA_FILE, deleteWeeksWhere, load, persist, serialized } from '../histo
 import { createPostgresFamilyStore } from './postgres-store'
 import { databaseUrl } from '../history/postgres-store'
 import type { LocalDatabase } from '../db/tables'
+import { EMPTY_FAMILY_RULES, type FamilyRules } from '../rules/family-rules'
+import { parseStoredRules } from '../rules/family-rules-schema'
 
 // Persistencia de familias y de quién puede acceder a cada una. Igual que HistoryStore: una interfaz
 // pequeña con dos implementaciones (Postgres si hay DATABASE_URL, JSON local si no). Las familias
@@ -21,6 +23,9 @@ export interface FamilyStore {
   create(name: string, creatorEmail: string): Promise<Family>
   // Sustituye nombre y lista de miembros. null si la familia no existe.
   update(id: string, input: { name: string; members: string[] }): Promise<Family | null>
+  // Reglas del menú de la familia; los valores por defecto si no tiene ninguna guardada.
+  getRules(familyId: string): Promise<FamilyRules>
+  setRules(familyId: string, rules: FamilyRules): Promise<void>
   // Borra la familia y sus semanas guardadas (y las recetas que se quedan sin usar).
   remove(id: string): Promise<boolean>
 }
@@ -42,6 +47,8 @@ function addFamily(db: LocalDatabase, name: string, creatorEmail: string): Local
   const row = { id: randomUUID(), name, created_at: now }
   db.families.push(row)
   db.family_members.push({ family_id: row.id, email: creatorEmail, created_at: now })
+  // Una familia nueva empieza SIN reglas (se guardan vacías: sin fila se aplicarían las de siempre).
+  db.family_rules.push({ family_id: row.id, rules: EMPTY_FAMILY_RULES, updated_at: now })
   return row
 }
 
@@ -86,12 +93,23 @@ function createLocalFamilyStore(file = DATA_FILE): FamilyStore {
         return toFamily(db, row)
       })
     },
+    async getRules(familyId) {
+      return parseStoredRules((await load(file)).family_rules.find(row => row.family_id === familyId)?.rules)
+    },
+    setRules(familyId, rules) {
+      return serialized(async () => {
+        const db = await load(file)
+        db.family_rules = [...db.family_rules.filter(row => row.family_id !== familyId), { family_id: familyId, rules, updated_at: new Date().toISOString() }]
+        await persist(file, db)
+      })
+    },
     remove(id) {
       return serialized(async () => {
         const db = await load(file)
         if (!db.families.some(item => item.id === id)) return false
         db.families = db.families.filter(item => item.id !== id)
         db.family_members = db.family_members.filter(member => member.family_id !== id)
+        db.family_rules = db.family_rules.filter(row => row.family_id !== id)
         deleteWeeksWhere(db, week => week.family_id === id)
         await persist(file, db)
         return true
@@ -104,7 +122,7 @@ function createFamilyStore(): FamilyStore {
   if (databaseUrl()) return createPostgresFamilyStore()
   if (process.env.VERCEL) {
     const fail = () => Promise.reject(new ConfigError('Falta DATABASE_URL (o POSTGRES_URL) en las variables de entorno de Vercel: sin ella las familias no se pueden guardar.'))
-    return { listForUser: fail, ensureForUser: fail, create: fail, update: fail, remove: fail }
+    return { listForUser: fail, ensureForUser: fail, create: fail, update: fail, getRules: fail, setRules: fail, remove: fail }
   }
   return createLocalFamilyStore()
 }

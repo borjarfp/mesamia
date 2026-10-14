@@ -3,6 +3,7 @@ import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { toErrorResponse } from '@/server/http'
 import { ValidationError } from '@/server/errors'
+import { getFamilyStore } from '@/server/families/store'
 import { getTasteContext } from '@/server/history/taste-context'
 import { generateFromSchoolMenu } from '@/server/pipeline/orchestrator'
 import { SchoolMenuExtractionSchema } from '@/server/types'
@@ -38,7 +39,8 @@ export async function POST(request: Request) {
 
       const { family } = await requireFamily(request)
       const taste = await getTasteContext(family.id, parsed.data.weekStart)
-      const { week, violations } = await generateFromSchoolMenu(parsed.data.schoolMenu, taste.text)
+      const rules = await getFamilyStore().getRules(family.id)
+      const { week, violations } = await generateFromSchoolMenu(parsed.data.schoolMenu, rules, taste.text)
       return NextResponse.json({ week, violations })
     } catch (error) {
       return toErrorResponse(error)

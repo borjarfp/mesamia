@@ -1,6 +1,6 @@
 import type { DayName, PlannedDish, ProteinCategory, RuleViolation, SchoolMenuExtraction } from '../types'
+import type { FamilyRules } from './family-rules'
 import { WEEKDAYS } from '../types'
-import { MAX_AVE, MAX_CARNE_ROJA, MAX_HUEVO, MAX_PESCADO, MIN_LEGUMBRE } from './constants'
 import { checkDishRestrictions } from './restrictions'
 
 // Normaliza un ingrediente para comparar de forma tolerante (mayúsculas/acentos/espacios no deben
@@ -47,10 +47,10 @@ function countByCategory(slots: PlannedDish[], category: ProteinCategory): numbe
 // en regla. No lanza excepciones: es responsabilidad del llamador (server/pipeline/step2) decidir
 // qué hacer con las violaciones (reintentar pidiéndole a Gemini que corrija, o devolver el
 // resultado con avisos).
-export function validateWeekDraft(slots: PlannedDish[], schoolMenu: SchoolMenuExtraction): RuleViolation[] {
+export function validateWeekDraft(slots: PlannedDish[], schoolMenu: SchoolMenuExtraction, rules: FamilyRules): RuleViolation[] {
   // Restricciones por plato: sin marisco/atún/aceitunas, solo merluza/salmón (+ cefalópodos) como
-  // pescado, y recetas fáciles y de ≤ MAX_WEEKDAY_MINUTES de lunes a viernes.
-  const violations: RuleViolation[] = slots.flatMap(slot => checkDishRestrictions({ ...slot, ingredients: slot.mainIngredients }))
+  // pescado, y recetas fáciles y de ≤ rules.weekday.maxMinutes de lunes a viernes (según las reglas de la familia).
+  const violations: RuleViolation[] = slots.flatMap(slot => checkDishRestrictions({ ...slot, ingredients: slot.mainIngredients }, rules))
 
   for (const day of WEEKDAYS) {
     const dinner = slots.find(slot => slot.day === day && slot.meal === 'cena')
@@ -77,20 +77,22 @@ export function validateWeekDraft(slots: PlannedDish[], schoolMenu: SchoolMenuEx
     }
   }
 
+  const { maxHuevo, maxAve, maxPescado, maxCarneRoja, minLegumbre } = rules.weekly
+
   const huevo = countByCategory(slots, 'huevo')
-  if (huevo > MAX_HUEVO) violations.push({ rule: 'max_huevo', message: `Hay ${huevo} raciones de huevo en la semana; el máximo es ${MAX_HUEVO}.` })
+  if (maxHuevo !== null && huevo > maxHuevo) violations.push({ rule: 'max_huevo', message: `Hay ${huevo} raciones de huevo en la semana; el máximo es ${maxHuevo}.` })
 
   const ave = countByCategory(slots, 'ave')
-  if (ave > MAX_AVE) violations.push({ rule: 'max_ave', message: `Hay ${ave} raciones de ave/pollo en la semana; el máximo es ${MAX_AVE}.` })
+  if (maxAve !== null && ave > maxAve) violations.push({ rule: 'max_ave', message: `Hay ${ave} raciones de ave/pollo en la semana; el máximo es ${maxAve}.` })
 
   const pescado = countByCategory(slots, 'pescado')
-  if (pescado > MAX_PESCADO) violations.push({ rule: 'max_pescado', message: `Hay ${pescado} raciones de pescado en la semana; el máximo es ${MAX_PESCADO}.` })
+  if (maxPescado !== null && pescado > maxPescado) violations.push({ rule: 'max_pescado', message: `Hay ${pescado} raciones de pescado en la semana; el máximo es ${maxPescado}.` })
 
   const carneRoja = countByCategory(slots, 'carne_roja')
-  if (carneRoja > MAX_CARNE_ROJA) violations.push({ rule: 'max_carne_roja', message: `Hay ${carneRoja} raciones de carne roja en la semana; el máximo es ${MAX_CARNE_ROJA}.` })
+  if (maxCarneRoja !== null && carneRoja > maxCarneRoja) violations.push({ rule: 'max_carne_roja', message: `Hay ${carneRoja} raciones de carne roja en la semana; el máximo es ${maxCarneRoja}.` })
 
   const legumbre = countByCategory(slots, 'legumbre')
-  if (legumbre < MIN_LEGUMBRE) violations.push({ rule: 'min_legumbre', message: `Solo hay ${legumbre} raciones de legumbres en la semana; el mínimo es ${MIN_LEGUMBRE}.` })
+  if (minLegumbre !== null && legumbre < minLegumbre) violations.push({ rule: 'min_legumbre', message: `Solo hay ${legumbre} raciones de legumbres en la semana; el mínimo es ${minLegumbre}.` })
 
   return violations
 }

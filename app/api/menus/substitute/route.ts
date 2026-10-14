@@ -3,6 +3,7 @@ import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
 import { ValidationError } from '@/server/errors'
 import { toErrorResponse } from '@/server/http'
+import { getFamilyStore } from '@/server/families/store'
 import { getTasteContext } from '@/server/history/taste-context'
 import { substituteDish } from '@/server/pipeline/substitute'
 import { DayNameSchema, MealSlotSchema, SchoolMenuExtractionSchema, WeekPlanSchema } from '@/server/types'
@@ -43,7 +44,8 @@ export async function POST(request: Request) {
       const { weekStart, ...input } = parsed.data
       const { family } = await requireFamily(request)
       const taste = await getTasteContext(family.id, weekStart)
-      const result = await substituteDish({ ...input, tasteContext: taste.text })
+      const rules = await getFamilyStore().getRules(family.id)
+      const result = await substituteDish({ ...input, rules, tasteContext: taste.text })
       return NextResponse.json(result)
     } catch (error) {
       return toErrorResponse(error)

@@ -64,7 +64,7 @@ components/menu/       UI compartida entre las tres rutas anteriores:
 lib/api.ts             Cliente HTTP del frontend hacia app/api/**: una función por endpoint,
                        maneja el parseo de errores ({error:{code,message}} → ApiError) en un sitio.
 lib/menu-data.ts       Ya NO es mock data de una semana: solo sourceStyles/hasExternalLink (estilo
-                       de los badges de fuente) + `ruleGroups` (texto de RulesPanel).
+                       de los badges de fuente) + `ruleGroupsFor(rules)` (texto de RulesPanel, generado desde las reglas de la familia).
 lib/week-dates.ts      dayLabel() (mostrar los DayName del backend, en minúsculas y
                        sin acentos) + getWeek(offset) (Lunes-Domingo a `offset` semanas de la de
                        hoy, con fechas de verdad) + relativeWeekLabel(offset) ("La semana que viene"…).
@@ -301,10 +301,11 @@ solo con lo puramente de presentación:
 
 ### Reglas dietéticas y la comida de lunes a viernes
 
-`ruleGroups` (`lib/menu-data.ts`) es texto informativo, no se valida en el frontend: las reglas de
-verdad las aplica el motor de reglas del backend (`server/rules/`, ver "Backend"). Los números
-(máximos, minutos) se importan de `server/rules/constants.ts`, que son constantes puras sin zod,
-así que no se desincronizan; el texto sí hay que mantenerlo a mano. **`RulesPanel` está abierto por
+**Las reglas son POR FAMILIA** (ver "Reglas del menú por familia" más abajo). `ruleGroupsFor(rules)`
+(`lib/menu-data.ts`) solo pinta texto: genera los grupos desde el mismo objeto `FamilyRules` que usan el
+motor de reglas y los prompts, así que lo que se ve es lo que se aplica; las reglas de verdad las aplica
+el motor del backend (`server/rules/`). `RulesPanel` pide `GET /api/rules` (reglas de la familia ACTIVA) y
+enlaza a Perfil para editarlas. **`RulesPanel` está abierto por
 defecto, a petición ("poder verlas y tenerlas en cuenta"), y se puede ocultar** con
 "Ocultar"/"Mostrar". La preferencia se guarda en `localStorage` (`mesamia:rules-panel-open`) y es
 la misma para las dos páginas. Se muestra agrupado (Equilibrio semanal / Ingredientes / Lunes a
@@ -391,6 +392,25 @@ datos **no** son por usuario: el login decide quién entra y las semanas son de 
   de solo lectura, nombre/correo/foto salen del JWT de sesión (los de cuando se inició sesión; si
   cambian en Google, se ven al volver a entrar). Si algún día hay datos por usuario o perfil editable,
   ahí sí hará falta una tabla `users`.
+  **Layout de `/perfil`** (pedido: *"en desktop que se vea todo en la misma pantalla; en responsive las
+  familias bajan"*, y luego *"la parte verde de las familias que ocupe todo el espacio restante"*): a partir
+  de `lg` (1024px) es una rejilla de dos columnas: tus datos a la izquierda (`<aside>`, 300px, `sticky`) y las
+  familias a la derecha; por debajo, una columna con las familias debajo. En `FamiliesManager` **la familia
+  activa (la verde) va siempre la primera y es el panel principal**: ocupa todo el ancho y el alto restante
+  (`flex-1` en una cadena de columnas flex desde `PageShell`), con sus reglas **desplegadas de entrada**
+  (`defaultOpen`, se cargan al montar) **DEBAJO de los datos de la familia, a todo el ancho de la tarjeta**
+  (pedido explícito: *"las reglas del menú quiero que estén abajo, la habías puesto a la derecha"*; no
+  volver a ponerlas en una columna lateral). Orden: nombre y personas (**a todo el ancho**, igual que
+  las reglas: *"que ocupe el 100% del hueco"*; no limitarles el ancho), reglas y, al final, "Guardar cambios"/"Borrar familia". A partir de `xl` (1280px) el editor se
+  reparte en dos columnas (límites y notas / ingredientes). Las demás familias son tarjetas compactas debajo
+  (de dos en dos a partir de `xl`; una con las reglas desplegadas ocupa las dos columnas) y al final el
+  formulario de nueva familia.
+  Sin familia activa (varias y ninguna elegida) todas son compactas. Los números usan
+  `grid-cols-[repeat(auto-fill,minmax(8rem,1fr))]` (no `sm:grid-cols-3`: los breakpoints miran la ventana,
+  no el contenedor, y desbordaban). Comprobado en Chrome (CDP) a 1440×900, 1920×1080, 1100×800, 820×1100 y
+  390×844: sin desbordamiento horizontal; el panel verde mide ~1050-1120px (datos + reglas apilados), así que
+  hay que bajar un poco en pantallas de 900-1080px de alto. Gotcha de los tests: los títulos de sección van en
+  mayúsculas por CSS, así que `innerText` los devuelve en mayúsculas.
 - **`next`** pasa por `safeNextPath`: solo rutas internas que empiecen por `/`, nunca `//` ni
   `/api/` (evita open redirect).
 - **Variables** (`server/env.ts`, plantilla en `.env.local.example`): `GOOGLE_CLIENT_ID`,
@@ -690,9 +710,108 @@ nunca lo rellenaba, y al guardar una semana no quedaba rastro de lo que se habí
   semana en la misma sesión, `WeekView` conservaba los `days` de la primera en su estado interno.
   Ahora lleva `key={week.generatedAt}`.
 
-### Restricciones de la familia (`server/rules/restrictions.ts`)
+### Reglas del menú por familia (`server/rules/family-rules.ts`)
 
-Pedidas por el usuario, además de los límites semanales de proteína:
+Pedido: *"no tiene sentido que todos tengan las mismas reglas"*. Cada familia tiene las suyas y las edita
+en **Perfil → Familias → "Reglas del menú de esta familia"** (`FamilyRulesEditor`, dentro de cada tarjeta).
+- **Una sola fuente de verdad**: el objeto `FamilyRules` (`family-rules.ts`, módulo puro sin zod para poder
+  importarlo desde el cliente). De él salen (1) las comprobaciones deterministas (`engine.ts`,
+  `restrictions.ts`, que reciben `rules` como parámetro), (2) las líneas de los prompts
+  (`server/prompts/familyRules.ts`: `buildWeeklyLimitLines`, `buildRestrictionLines`, `buildNotesLines`) y
+  (3) el texto del panel (`ruleGroupsFor`). **Ya no hay constantes `MAX_*`/`MIN_*`**: `constants.ts` solo
+  conserva `PEOPLE_BY_DAY`. Antes de tocar una regla, cambiarla ahí y solo ahí.
+- **Qué es editable**: límites semanales (máx. huevo/ave/pescado/carne roja, mín. legumbre); lunes a viernes
+  (minutos objetivo y máximo, solo recetas fáciles sí/no); ingredientes, **en exactamente tres bloques**
+  (pedido): (1) "Limitar el pescado a unas especies" (`restrictFish` + `allowedFish`, de `FISH_CATALOG`),
+  (2) "Limitar la carne a algunos tipos" (`restrictMeat` + `allowedMeat`, de `MEAT_CATALOG`: pollo, pavo, otras
+  aves, ternera, cerdo, jamón y fiambres, embutidos, cordero, conejo, otras) y (3) "Otros ingredientes que no
+  quieres" (`custom`, chips); y `notes`, texto libre para la IA que va al prompt pero **no se comprueba**.
+  Los tipos de pescado/carne se detectan por una lista de términos (palabra completa, plural opcional): un
+  tipo que no esté en el catálogo no se detecta (`buey` no está a propósito: chocaría con "buey de mar";
+  `lomo` tampoco, por "lomo de merluza").
+- **`custom` y los alias**: cada palabra se busca tal cual, salvo `marisco`, `atún`, `aceitunas`,
+  `champiñones` y `tofu`, que se expanden a su lista de términos (`INGREDIENT_ALIASES` /
+  `classifyCustomWords`, `family-rules.ts`): "marisco" prohíbe gambas, mejillones…, "aceitunas" no bloquea el
+  aceite de oliva. Los chips "+ marisco", "+ atún"… del editor los vuelven a añadir. **Los 5 interruptores de
+  la primera versión (`noMarisco`…`noTofu`) ya no existen: son palabras precargadas en `custom`**, y un
+  documento guardado con ellos se migra al leerlo (`migrateLegacyRules`).
+- **Con las reglas por defecto, lo que reciben Gemini y Tavily es EXACTAMENTE lo de antes de parametrizar**
+  (a petición; verificado byte a byte contra el commit `dc19ed7` con un arnés temporal: 129 comparaciones de
+  system prompts de planificación/sustitución/elección de receta, user prompts, esquemas JSON de respuesta,
+  los 14 huecos, lista de la compra y violaciones —mensaje, código y orden— de 108 platos y 4 semanas; Tavily
+  no se ha tocado). Para lograrlo, `prompts/familyRules.ts` y `rules/restrictions.ts` conservan **los textos,
+  códigos y el orden de siempre**: una línea de prompt y un mensaje propios por grupo (marisco, atún, aceitunas,
+  champiñones/tofu), el texto de siempre para el pescado "de siempre" (`isDefaultFishSelection`) y el orden
+  de siempre en los pescados prohibidos (`FISH_TERM_ORDER`). **Los mensajes de violación se reenvían a Gemini
+  al reintentar, así que cambiar una redacción cambia lo que ve el LLM.** Con reglas distintas a las de por
+  defecto el texto es generado. Antes de tocar esos textos, repetir la comparación con `git show HEAD:…`.
+- **Una familia NUEVA empieza SIN reglas** (pedido: *"al crear una familia nueva todo tiene que estar vacío"*).
+  Se guarda explícitamente `EMPTY_FAMILY_RULES` al crearla (`addFamily` en el store local e `insertFamily` en
+  Postgres, también para la "Mi familia" autocreada): ningún límite, ninguna restricción, sin notas. **"Vacío"
+  en los números es `null` = sin límite** (`weekly.*` y `weekday.targetMinutes/maxMinutes` son `number | null`;
+  el editor los muestra vacíos con "Sin límite"; el motor, los prompts y el panel se saltan los `null`). Un
+  campo AUSENTE en un documento guardado toma el valor "de siempre"; uno `null` explícito, no.
+  **Gotcha**: antes, una familia sin fila caía en `DEFAULT_FAMILY_RULES` y por eso una familia nueva salía
+  rellena. Ese fallback se conserva SOLO para familias que ya existían sin fila (`getRules` sin fila →
+  `DEFAULT_FAMILY_RULES`), y por eso toda creación debe guardar su fila vacía. `DEFAULT_FAMILY_RULES` son las
+  reglas "de siempre" (4/3/3/1 y mín. 4, 40/50 min y solo fácil, `custom` = marisco/atún/aceitunas/
+  champiñones/tofu, pescado solo merluza/salmón/cefalópodos, carne sin limitar) y el editor las ofrece con
+  "Usar reglas recomendadas"; "Vaciar reglas" deja todo vacío. Con las reglas por defecto, lo que reciben
+  Gemini y Tavily sigue siendo idéntico a antes de parametrizar (se repitió la comparación al introducir los
+  `null`: 129/129).
+- **Almacenamiento**: tabla `family_rules(family_id PK → families ON DELETE CASCADE, rules jsonb)`, una
+  fila por familia, creada sola por `ensureSchema()` (ver "Familias"). `FamilyStore.getRules/setRules`;
+  `parseStoredRules` (`family-rules-schema.ts`) rellena con los valores por defecto lo que falte (todos los
+  campos llevan `.default`) y devuelve los defaults si el documento está corrupto: **un documento mal
+  formado nunca debe romper una generación**.
+- **API**: `GET /api/rules` (reglas de la familia activa), `GET|PUT /api/families/[id]/rules` (solo
+  miembros, 404 si no; `PUT` valida con `FamilyRulesSchema`: rangos 0-14 raciones, 5-240 min, objetivo ≤
+  máximo, ≤30 palabras propias de ≤40 caracteres, notas ≤500). Cualquier miembro puede editarlas.
+- **Flujo**: `/api/menus/plan|generate|substitute` cargan `getRules(family.id)` y lo pasan por el pipeline
+  (`planWeek`, `selectRecipes` y `substituteDish` reciben `rules`). El Paso 4 también filtra la receta
+  elegida con las reglas de la familia.
+- **Seguridad de las palabras propias**: las escribe un usuario y acaban en una `RegExp`
+  (`containsTerm`), así que se escapan los caracteres especiales (probado con `a(b`).
+- **Modo pruebas**: `generateStructured` acepta `testRules` y el Gemini falso (`fake-gemini.ts`) filtra su
+  catálogo con el mismo `checkDishRestrictions`; con reglas muy estrictas el catálogo (~25 platos) puede no
+  alcanzar y el motor devuelve violaciones (es lo esperado: las muestra, no las oculta).
+- **Fuera de las reglas por familia, a propósito**: `PEOPLE_BY_DAY` (personas por día) y todo lo del menú
+  escolar (Aina, Iria, "no repetir en la cena"). Las personas por día afectan a las cantidades de las
+  recetas ya guardadas: para hacerlas editables habría que guardar las personas en cada semana, o
+  las semanas viejas mostrarían cantidades que no cuadran. Las semanas ya guardadas no cambian si se
+  editan las reglas (se validaron con las de su momento).
+- **Probado de verdad** (14-oct-2026, Gemini + Tavily + Postgres/Supabase reales, con dos PDF sintéticos en
+  catalán/castellano de Aina e Iria y una identidad y dos familias desechables, borradas después con SQL):
+  - Familia con reglas por defecto: semana completa en ~69 s, 0 violaciones, ninguna prohibición rota.
+  - Otra familia con reglas estrictas (0 carne roja, solo pollo/pavo, 1 huevo, 2 pescado, ≥5 legumbre, ≤30 min,
+    sin calabacín ni coliflor, solo merluza/salmón): ~138 s; **todas** las reglas se cumplen (el motor devolvió
+    3 violaciones, todas de la regla del menú escolar —la cena repite el cole—, no de las de la familia: con
+    reglas tan apretadas Gemini no las evitó en 3 intentos; se muestran, no se ocultan).
+  - Sustitución real con esas reglas (3 alternativas válidas, ~37 s), guardado en Postgres, lista de la compra
+    real (~51 s; la segunda llamada usa la guardada), historial y contexto de gustos **aislados por familia**
+    (el texto de una no contiene platos de la otra), 404 al pedir/borrar la semana de otra familia, `/semana`
+    con la otra familia activa = 404, 409 sin familia elegida, `GET /api/rules` distinto por familia.
+  - Editor de reglas en Chrome real por CDP (18 comprobaciones): los 3 bloques, valores precargados, sugerencias
+    "+ tofu", guardar/recargar, "Usar reglas recomendadas"/"Vaciar reglas", aviso de minutos imposibles. **Encontró y se corrigió**
+    que quitar una etiqueta y volver a añadirla (queda al final) contaba como cambio: `same()` ya no depende del
+    orden de las listas.
+  - **BD**: el documento de reglas guardado en el formato antiguo (`noMarisco`…) se reescribió al nuevo en la
+    BD real (simulación primero, luego transacción); se leía bien igualmente por `migrateLegacyRules`.
+  - Familia nueva (14-oct, real): se guarda con reglas vacías en Postgres; una semana real con Gemini/Tavily
+    sin ninguna regla sale sin restricciones (champiñones, atún, marisco, chorizo, 4 pescados, 60 min entre
+    semana), y en Chrome el editor la muestra con los 7 números en "Sin límite", nada marcado y las 5
+    sugerencias "+ marisco…". La familia que ya existía sin reglas guardadas conserva las de siempre. La
+    familia de prueba "OtraFamilia" de la BD real se dejó vacía con SQL.
+  - **No probado**: el login completo con Google (necesita una cuenta real; sí la lógica de familias y
+    sesiones que usa) y los PDF reales de Aina e Iria (los de la prueba son sintéticos).
+- **Visto en la prueba real, sin tocar a propósito** (cambiarlo altera el prompt, y se pidió que fuera idéntico
+  al de antes): el Paso 4 a veces deja como título el de la página web ("Cómo hacer hamburguesas caseras
+  perfectas", "Pollo al horno de Karlos Arguiñano…") en vez de un nombre corto de plato.
+
+#### Restricciones de ingredientes y tiempo (`server/rules/restrictions.ts`)
+
+Los valores de abajo son los **por defecto**; cada familia los cambia (arriba). Eran los pedidos por el
+usuario, además de los límites semanales de proteína:
 - Sin marisco (crustáceos y bivalvos). **Pota, calamar, pulpo y sepia sí están permitidos**, y se
   clasifican como `pescado`, así que cuentan para el máximo semanal de pescado.
 - Sin champiñones y sin tofu (`OTHER_BANNED`; solo champiñones, no todas las setas).
@@ -702,8 +821,8 @@ Pedidas por el usuario, además de los límites semanales de proteína:
   pescado está prohibido **también como ingrediente secundario** (anchoas en una pizza, por
   ejemplo). Un plato `pescado` tiene que nombrar la especie; "pescado blanco" no vale.
 - De lunes a viernes (comida y cena), la receta tiene que ser `difficulty: 'facil'` y durar
-  `totalTimeMinutes ≤ 50`. A Gemini se le pide apuntar a 40 (`TARGET_WEEKDAY_MINUTES` /
-  `MAX_WEEKDAY_MINUTES` en `constants.ts`). El fin de semana no tiene límite.
+  `totalTimeMinutes ≤ 50`. A Gemini se le pide apuntar a 40 (`weekday.targetMinutes` /
+  `weekday.maxMinutes` de las reglas de la familia). El fin de semana no tiene límite.
 
 Para esto `PlannedDish`, `ConsolidatedRecipe` y `FinalDish` llevan `totalTimeMinutes` y
 `difficulty`: Gemini los estima al planificar y los extrae de la página web al consolidar. En

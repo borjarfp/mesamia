@@ -1,3 +1,4 @@
+import type { FamilyRules } from '../rules/family-rules'
 import type { RuleViolation, SchoolMenuExtraction, WeekPlan } from '../types'
 import { assembleWeek } from './assemble'
 import { selectRecipes } from './step4-consolidate'
@@ -14,11 +15,11 @@ export type GenerateResult = {
 // (concurrente), elegir la mejor de cada plato (web o propia de Gemini), y ensamblar la semana. Se usa tanto desde
 // /api/menus/generate (cuando el cliente ya tiene el JSON del menú escolar) como desde
 // planFullWeek() más abajo (cuando parte de los archivos originales).
-// `tasteContext`: las semanas anteriores en texto para el LLM (server/history/taste-context.ts).
-export async function generateFromSchoolMenu(schoolMenu: SchoolMenuExtraction, tasteContext?: string): Promise<GenerateResult> {
-  const { slots, violations } = await planWeek(schoolMenu, tasteContext)
+// `rules`: las reglas de la familia activa. `tasteContext`: las semanas anteriores en texto para el LLM (server/history/taste-context.ts).
+export async function generateFromSchoolMenu(schoolMenu: SchoolMenuExtraction, rules: FamilyRules, tasteContext?: string): Promise<GenerateResult> {
+  const { slots, violations } = await planWeek(schoolMenu, rules, tasteContext)
   const lookups = await fetchRecipes(slots.map(dish => ({ key: slotKey(dish.day, dish.meal), dish })))
-  const selected = await selectRecipes(lookups)
+  const selected = await selectRecipes(lookups, rules)
   const week = assembleWeek(slots, selected)
   return { week, violations }
 }
@@ -28,8 +29,8 @@ export type PlanFullWeekResult = GenerateResult & { schoolMenu: SchoolMenuExtrac
 // Pipeline completo, Pasos 1 → 4, de una sola vez: el caso de uso que dispara el botón único
 // "Generar menú semanal inteligente" del frontend (sube los PDF/imágenes y quiere la semana ya
 // lista, sin pasos intermedios).
-export async function planFullWeek(uploads: SchoolMenuUpload[], tasteContext?: string, weekStart?: string): Promise<PlanFullWeekResult> {
+export async function planFullWeek(uploads: SchoolMenuUpload[], rules: FamilyRules, tasteContext?: string, weekStart?: string): Promise<PlanFullWeekResult> {
   const schoolMenu = await extractSchoolMenu(uploads, weekStart)
-  const result = await generateFromSchoolMenu(schoolMenu, tasteContext)
+  const result = await generateFromSchoolMenu(schoolMenu, rules, tasteContext)
   return { schoolMenu, ...result }
 }

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { FamilyRequiredError, UnauthorizedError } from '../errors'
+import { FamilyRequiredError, NotFoundError, UnauthorizedError } from '../errors'
 import { getFamilyStore } from '../families/store'
 import type { Family } from '../types'
 import { SESSION_COOKIE, verifySessionToken, type Session } from './session'
@@ -42,6 +42,15 @@ export async function requireFamily(request: Request): Promise<{ session: Sessio
   const { active } = await resolveFamilies(session, readCookie(request.headers.get('cookie'), FAMILY_COOKIE))
   if (!active) throw new FamilyRequiredError()
   return { session, family: active }
+}
+
+// Una familia de la que la persona es miembro, por id; si no, NotFoundError (404: no se revela que existe).
+export async function requireMemberFamily(request: Request, familyId: string): Promise<{ session: Session; family: Family; families: Family[] }> {
+  const session = await requireSession(request)
+  const families = await getFamilyStore().listForUser(session.email)
+  const family = families.find(item => item.id === familyId)
+  if (!family) throw new NotFoundError('No existe esa familia.')
+  return { session, family, families }
 }
 
 // --- Páginas (Server Components) ---------------------------------------------------------------

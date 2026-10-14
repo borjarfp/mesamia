@@ -233,10 +233,15 @@ nunca entra en el recuento — no es una propuesta que se valide, solo contexto 
 ingredientes cena-vs-cole es una heurística de texto (normaliza acentos/mayúsculas, compara por
 igualdad o contención), no NLP real — ver comentarios en `engine.ts`.
 
-Además, `restrictions.ts` aplica las restricciones de la familia en cada plato: sin marisco
-(pota/calamar/pulpo/sepia sí), sin atún, sin aceitunas, sin champiñones ni tofu, y como único pescado merluza o salmón. De
-lunes a viernes, las recetas tienen que ser fáciles y de ≤ 50 min (`totalTimeMinutes`,
-`difficulty`). Se comprueban tanto sobre el plato planificado como sobre la receta web consolidada
+**Las reglas son por familia** (`server/rules/family-rules.ts`, `FamilyRules`; se editan en Perfil →
+Familias y se guardan en `family_rules`): límites semanales, tiempos de lunes a viernes, ingredientes
+(limitar pescado, limitar carne, otros ingredientes que no quieren) y notas para la IA. Los valores por defecto (`DEFAULT_FAMILY_RULES`) son los de siempre. El motor
+(`engine.ts`, `restrictions.ts`) y los prompts (`server/prompts/familyRules.ts`) reciben `rules` y salen del
+mismo objeto. Endpoints: `GET /api/rules` (familia activa) y `GET|PUT /api/families/[id]/rules`.
+
+`restrictions.ts` aplica las restricciones de ingredientes y de tiempo en cada plato (por defecto: sin marisco
+(pota/calamar/pulpo/sepia sí), sin atún, sin aceitunas, sin champiñones ni tofu, como único pescado merluza o
+salmón, y de lunes a viernes recetas fáciles y de ≤ 50 min). Se comprueban tanto sobre el plato planificado como sobre la receta web consolidada
 (Paso 4); una receta web que incumpla algo se descarta y el plato se queda como "Generado por IA".
 
 ## Verificado con la API real (no solo mocks)

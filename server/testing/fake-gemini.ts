@@ -1,5 +1,6 @@
 import type { z } from 'zod'
-import { MAX_AVE, MAX_CARNE_ROJA, MAX_HUEVO, MAX_PESCADO, MAX_WEEKDAY_MINUTES, MIN_LEGUMBRE } from '../rules/constants'
+import { DEFAULT_FAMILY_RULES, type FamilyRules } from '../rules/family-rules'
+import { checkDishRestrictions } from '../rules/restrictions'
 import {
   AlternativesDraftSchema,
   ChildSchoolMenuSchema,
@@ -75,12 +76,15 @@ const POOL: Record<ProteinCategory, FakeDish[]> = {
   ],
 }
 const ALL_DISHES = Object.values(POOL).flat()
-const MAX: Partial<Record<ProteinCategory, number>> = { huevo: MAX_HUEVO, ave: MAX_AVE, pescado: MAX_PESCADO, carne_roja: MAX_CARNE_ROJA }
+const maxByCategory = (rules: FamilyRules): Partial<Record<ProteinCategory, number>> => Object.fromEntries(Object.entries({ huevo: rules.weekly.maxHuevo, ave: rules.weekly.maxAve, pescado: rules.weekly.maxPescado, carne_roja: rules.weekly.maxCarneRoja }).filter(([, max]) => max !== null)) as Partial<Record<ProteinCategory, number>>
 
 const normalize = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
 const overlaps = (a: string[], b: string[]) => a.some(x => b.some(y => normalize(x).includes(normalize(y)) || normalize(y).includes(normalize(x))))
 const isWeekday = (day: DayName) => WEEKDAYS.includes(day)
-const fitsDay = (candidate: FakeDish, day: DayName) => !isWeekday(day) || (candidate.difficulty === 'facil' && candidate.totalTimeMinutes <= MAX_WEEKDAY_MINUTES)
+// El plato cumple las reglas de la familia para ese hueco (las MISMAS que comprueba el motor de reglas):
+// ingredientes prohibidos, y de lunes a viernes dificultad y tiempo.
+const fitsDay = (candidate: FakeDish, day: DayName, rules: FamilyRules, meal: MealSlot = 'cena') =>
+  checkDishRestrictions({ day, meal, title: candidate.title, ingredients: candidate.mainIngredients, proteinCategory: candidate.proteinCategory, totalTimeMinutes: candidate.totalTimeMinutes, difficulty: candidate.difficulty }, rules).length === 0
 
 // --- Lectura del prompt ---------------------------------------------------------------------------
 
@@ -104,7 +108,8 @@ const avoidsSchool = (candidate: FakeDish, school: SchoolDay[] = []) =>
 
 // --- Planificación de la semana ------------------------------------------------------------------
 
-function fakeWeekPlan(prompt: string): z.infer<typeof WeekPlanDraftSchema> {
+function fakeWeekPlan(prompt: string, rules: FamilyRules): z.infer<typeof WeekPlanDraftSchema> {
+  const MAX = maxByCategory(rules)
   const school = parseSchoolDays(prompt)
   const counts: Partial<Record<ProteinCategory, number>> = {}
   const used = new Set<string>()
@@ -114,16 +119,16 @@ function fakeWeekPlan(prompt: string): z.infer<typeof WeekPlanDraftSchema> {
   const order = [...WEEKDAYS.map(day => ({ day, meal: 'comida' as MealSlot })), ...WEEKDAYS.map(day => ({ day, meal: 'cena' as MealSlot })), ...PLANNED_SLOTS.filter(slot => !isWeekday(slot.day))]
   order.forEach(({ day, meal }, index) => {
     const remainingAfter = order.length - index - 1
-    const legumesNeeded = MIN_LEGUMBRE - (counts.legumbre ?? 0)
+    const legumesNeeded = (rules.weekly.minLegumbre ?? 0) - (counts.legumbre ?? 0)
     const mustBeLegume = legumesNeeded > remainingAfter
     // La comida L-V imita la categoría de lo que come Aina (o la primera niña) ese día, como pide
     // SCHOOL_CONTEXT_LINES; la cena prueba primero legumbre/pescado/huevo.
     const lunchCategory = meal === 'comida' ? school.get(day)?.find(entry => entry.child === 'Aina')?.category ?? school.get(day)?.[0]?.category : undefined
     const preference: ProteinCategory[] = mustBeLegume ? ['legumbre'] : [...(lunchCategory ? [lunchCategory] : []), 'legumbre', 'pescado', 'huevo', 'ave', 'otro', 'carne_roja']
     const candidate = preference.flatMap(category => POOL[category]).find(option =>
-      !used.has(option.title) && fitsDay(option, day) && (counts[option.proteinCategory] ?? 0) < (MAX[option.proteinCategory] ?? Infinity) &&
+      !used.has(option.title) && fitsDay(option, day, rules, meal) && (counts[option.proteinCategory] ?? 0) < (MAX[option.proteinCategory] ?? Infinity) &&
       (meal === 'comida' || !isWeekday(day) || avoidsSchool(option, school.get(day))))
-      ?? POOL.otro.find(option => !used.has(option.title) && fitsDay(option, day))!
+      ?? POOL.otro.find(option => !used.has(option.title) && fitsDay(option, day, rules, meal)) ?? POOL.otro.find(option => !used.has(option.title)) ?? POOL.otro[0]
     used.add(candidate.title)
     counts[candidate.proteinCategory] = (counts[candidate.proteinCategory] ?? 0) + 1
     slots.push({ day, meal, ...candidate, rationale: 'Plato de prueba (modo pruebas, sin IA).' })
@@ -135,7 +140,8 @@ function fakeWeekPlan(prompt: string): z.infer<typeof WeekPlanDraftSchema> {
 
 let alternativesCall = 0
 
-function fakeAlternatives(prompt: string, count: number): z.infer<typeof AlternativesDraftSchema> {
+function fakeAlternatives(prompt: string, count: number, rules: FamilyRules): z.infer<typeof AlternativesDraftSchema> {
+  const MAX = maxByCategory(rules)
   const slot = prompt.match(/Hueco a sustituir: (\w+) \/ (\w+)\./)
   const day = (slot?.[1] ?? 'lunes') as DayName
   const meal = (slot?.[2] ?? 'cena') as MealSlot
@@ -145,10 +151,10 @@ function fakeAlternatives(prompt: string, count: number): z.infer<typeof Alterna
   const counts: Partial<Record<ProteinCategory, number>> = {}
   others.forEach(item => { counts[item.proteinCategory] = (counts[item.proteinCategory] ?? 0) + 1 })
   const inWeek = new Set((week?.days ?? []).flatMap(plan => [plan.comida.title, plan.cena.title]))
-  const mustBeLegume = (counts.legumbre ?? 0) < MIN_LEGUMBRE
+  const mustBeLegume = (counts.legumbre ?? 0) < (rules.weekly.minLegumbre ?? 0)
   const school = parseSchoolDays(prompt).get(day)
   const valid = ALL_DISHES.filter(option =>
-    !inWeek.has(option.title) && fitsDay(option, day) && (counts[option.proteinCategory] ?? 0) < (MAX[option.proteinCategory] ?? Infinity) &&
+    !inWeek.has(option.title) && fitsDay(option, day, rules, meal) && (counts[option.proteinCategory] ?? 0) < (MAX[option.proteinCategory] ?? Infinity) &&
     (!mustBeLegume || option.proteinCategory === 'legumbre') && (meal === 'comida' || !isWeekday(day) || avoidsSchool(option, school)))
   // Cada llamada avanza la ventana `count` posiciones, para que "Buscar otras alternativas" dé
   // otras distintas (mientras haya suficientes platos válidos para ese hueco).
@@ -227,11 +233,11 @@ function fakeShoppingList(prompt: string): z.infer<typeof ShoppingListSchema> {
 
 const FAKE_LATENCY_MS = 400
 
-export async function fakeGenerateStructured(schema: z.ZodType, systemInstruction: string | undefined, prompt: string): Promise<unknown> {
+export async function fakeGenerateStructured(schema: z.ZodType, systemInstruction: string | undefined, prompt: string, rules: FamilyRules = DEFAULT_FAMILY_RULES): Promise<unknown> {
   await new Promise(resolve => setTimeout(resolve, FAKE_LATENCY_MS))
   if (schema === ChildSchoolMenuSchema) return fakeSchoolMenu(prompt)
-  if (schema === WeekPlanDraftSchema) return fakeWeekPlan(prompt)
-  if (schema === AlternativesDraftSchema) return fakeAlternatives(prompt, Number(systemInstruction?.match(/exactamente (\d+) alternativas/)?.[1] ?? 3))
+  if (schema === WeekPlanDraftSchema) return fakeWeekPlan(prompt, rules)
+  if (schema === AlternativesDraftSchema) return fakeAlternatives(prompt, Number(systemInstruction?.match(/exactamente (\d+) alternativas/)?.[1] ?? 3), rules)
   if (schema === RecipeSelectionSchema) return fakeRecipeSelection(prompt)
   if (schema === ShoppingListSchema) return fakeShoppingList(prompt)
   throw new Error('Modo pruebas: no hay datos de prueba para este esquema de Gemini. Añádelos en server/testing/fake-gemini.ts.')

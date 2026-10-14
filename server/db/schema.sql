@@ -5,6 +5,7 @@
 -- Aplicar con: pnpm db:migrate
 --
 --   families 1 ──< family_members
+--   families 1 ──  family_rules (reglas del menú de la familia, un documento JSON)
 --   families 1 ──< saved_weeks 1 ──< week_meals >── 1 recipes 1 ──< recipe_ingredients
 --                                              1 ──< recipe_steps
 --
@@ -37,6 +38,15 @@ CREATE TABLE family_members (
   PRIMARY KEY (family_id, email)
 );
 CREATE INDEX family_members_email_idx ON family_members (email);
+
+-- Reglas del menú de cada familia: límites semanales de proteína, tiempos de lunes a viernes,
+-- ingredientes prohibidos y notas para la IA, en un documento JSON (FamilyRules, validado en la app con
+-- server/rules/family-rules-schema.ts). Una familia sin fila usa los valores por defecto.
+CREATE TABLE family_rules (
+  family_id   uuid        PRIMARY KEY REFERENCES families (id) ON DELETE CASCADE,
+  rules       jsonb       NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
 
 -- Una semana confirmada con "Confirmar planificación".
 CREATE TABLE saved_weeks (
@@ -116,6 +126,7 @@ CREATE INDEX week_meals_recipe_id_idx ON week_meals (recipe_id);
 -- así que se activa RLS SIN políticas: la clave anon no puede leer ni escribir nada.
 ALTER TABLE families           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE family_members     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE family_rules       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE saved_weeks        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipe_ingredients ENABLE ROW LEVEL SECURITY;

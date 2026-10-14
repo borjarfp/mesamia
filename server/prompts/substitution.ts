@@ -1,13 +1,13 @@
-import { MAX_AVE, MAX_CARNE_ROJA, MAX_HUEVO, MAX_PESCADO, MIN_LEGUMBRE } from '../rules/constants'
+import type { FamilyRules } from '../rules/family-rules'
+import { buildNotesLines, buildRestrictionLines, buildWeeklyLimitSummary } from './familyRules'
 import { TASTE_CONTEXT_INSTRUCTIONS, TASTE_HISTORY_WEEKS } from '../history/taste-context'
 import { formatSchoolDay, SCHOOL_CONTEXT_LINES } from './schoolContext'
-import { FAMILY_RESTRICTION_LINES } from './weekPlanning'
 import { PROTEIN_CATEGORIES, WEEKDAYS, type DayName, type MealSlot, type RuleViolation, type SchoolMenuExtraction, type WeekPlan } from '../types'
 
 // Sustitución de un plato concreto: se le da a Gemini el resto de la semana ya fijado (para que no
 // rompa los límites semanales) y se le piden `count` alternativas de una sola vez — igual que en el
 // frontend mock, donde "Cambiar" ofrece 3 opciones a elegir, no una sola.
-export function buildSubstitutionSystemInstruction(count: number): string {
+export function buildSubstitutionSystemInstruction(count: number, rules: FamilyRules): string {
   return [
     `Propón exactamente ${count} alternativas distintas de plato para UN único hueco de un menú semanal familiar, manteniendo fijo el resto de la semana que se te da como contexto.`,
     'Para cada alternativa define:',
@@ -19,8 +19,9 @@ export function buildSubstitutionSystemInstruction(count: number): string {
     '- rationale (opcional): una frase breve.',
     'Las alternativas deben ser variadas entre sí (no repitas la misma categoría de proteína en las tres si es evitable).',
     'Cada alternativa, sustituyendo únicamente el hueco indicado, debe seguir cumpliendo estas reglas para la semana completa:',
-    `- Máximo ${MAX_HUEVO} huevo, ${MAX_AVE} ave, ${MAX_PESCADO} pescado, ${MAX_CARNE_ROJA} carne_roja; mínimo ${MIN_LEGUMBRE} legumbre, en total en la semana.`,
-    ...FAMILY_RESTRICTION_LINES,
+    ...buildWeeklyLimitSummary(rules),
+    ...buildRestrictionLines(rules),
+    ...buildNotesLines(rules),
     'Si el hueco es de lunes a viernes, aplica también esto (se te da el menú escolar de ese día):',
     ...SCHOOL_CONTEXT_LINES.map(line => `  ${line}`),
     'Devuelve exclusivamente el JSON solicitado.',

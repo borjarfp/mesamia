@@ -1,44 +1,54 @@
 import { RECIPE_SOURCES } from '@/server/clients/recipe-sources'
-import { MAX_AVE, MAX_CARNE_ROJA, MAX_HUEVO, MAX_PESCADO, MAX_WEEKDAY_MINUTES, MIN_LEGUMBRE, TARGET_WEEKDAY_MINUTES } from '@/server/rules/constants'
+import { FISH_CATALOG, MEAT_CATALOG, type FamilyRules } from '@/server/rules/family-rules'
 
-// Todas las reglas que aplica el backend al generar/sustituir platos, agrupadas para mostrarlas en
-// el planificador (RulesPanel). Los números salen de server/rules/constants.ts (constantes puras,
-// sin zod ni código de servidor), así que no pueden desincronizarse; el texto sí hay que mantenerlo
-// a mano si cambia una regla de server/rules/engine.ts o restrictions.ts.
-export const ruleGroups: Array<{ title: string; rules: string[] }> = [
-  {
-    title: 'Equilibrio semanal',
-    rules: [
-      `Mínimo ${MIN_LEGUMBRE} raciones de legumbres.`,
-      `Máximo ${MAX_HUEVO} raciones de huevo.`,
-      `Máximo ${MAX_AVE} raciones de ave/pollo.`,
-      `Máximo ${MAX_PESCADO} raciones de pescado (pota, calamar, pulpo y sepia cuentan como pescado).`,
-      `Máximo ${MAX_CARNE_ROJA} ración de carne roja.`,
-      'Se cuentan las 14 comidas de la semana: comida y cena de lunes a domingo.',
-    ],
-  },
-  {
-    title: 'Ingredientes',
-    rules: [
-      'Sin marisco: ni gambas, langostinos, mejillones, almejas, cangrejo…',
-      'Sí se permiten pota, calamar, pulpo y sepia.',
-      'Pescado: solo merluza o salmón. Ningún otro, tampoco como ingrediente secundario (anchoas, bacalao…).',
-      'Sin atún ni bonito.',
-      'Sin aceitunas (el aceite de oliva sí).',
-      'Sin champiñones ni tofu.',
-    ],
-  },
-  {
-    title: 'Lunes a viernes',
-    rules: [
-      `Recetas fáciles, de unos ${TARGET_WEEKDAY_MINUTES} min y nunca más de ${MAX_WEEKDAY_MINUTES} min en total.`,
-      'La comida de los adultos se parece a la que come Aina ese día en el cole (mismo tipo de plato).',
-      'La cena se inspira en la "proposta de sopar" del menú de Aina, como sugerencia.',
-      'La cena no repite el tipo de proteína ni los ingredientes de lo que Aina e Iria han comido ese día en el cole.',
-      'El fin de semana no tiene límite de tiempo ni de dificultad.',
-    ],
-  },
-]
+// Las reglas de UNA familia agrupadas para mostrarlas (RulesPanel). Salen del mismo objeto
+// (FamilyRules) que usa el motor de reglas y los prompts, así que lo que se ve es lo que se aplica. Las
+// líneas del menú escolar (Aina e Iria) son fijas: no forman parte de las reglas por familia.
+export type RuleGroup = { title: string; rules: string[] }
+
+export function ruleGroupsFor(rules: FamilyRules): RuleGroup[] {
+  const { weekly, weekday, ingredients } = rules
+  const times = (max: number | null, what: string) => (max === null ? [] : [`${max === 0 ? 'Ninguna ración' : `Máximo ${max} ${max === 1 ? 'ración' : 'raciones'}`} de ${what}.`])
+  const weeklyRules = [
+    ...(weekly.minLegumbre !== null && weekly.minLegumbre > 0 ? [`Mínimo ${weekly.minLegumbre} raciones de legumbres.`] : []),
+    ...times(weekly.maxHuevo, 'huevo'),
+    ...times(weekly.maxAve, 'ave/pollo'),
+    ...times(weekly.maxPescado, 'pescado (pota, calamar, pulpo y sepia cuentan como pescado)'),
+    ...times(weekly.maxCarneRoja, 'carne roja'),
+  ]
+  const weekdayTime = weekday.targetMinutes !== null && weekday.maxMinutes !== null
+    ? [`Recetas ${weekday.onlyEasy ? 'fáciles, ' : ''}de unos ${weekday.targetMinutes} min y nunca más de ${weekday.maxMinutes} min en total.`]
+    : [...(weekday.onlyEasy ? ['Solo recetas fáciles.'] : []), ...(weekday.targetMinutes !== null ? [`Recetas de unos ${weekday.targetMinutes} min.`] : []), ...(weekday.maxMinutes !== null ? [`Nunca más de ${weekday.maxMinutes} min en total.`] : [])]
+  const allowedFish = FISH_CATALOG.filter(fish => (ingredients.allowedFish as readonly string[]).includes(fish.key)).map(fish => fish.label)
+  const allowedMeat = MEAT_CATALOG.filter(meat => (ingredients.allowedMeat as readonly string[]).includes(meat.key)).map(meat => meat.label)
+  const groups: RuleGroup[] = [
+    {
+      title: 'Equilibrio semanal',
+      rules: weeklyRules.length === 0 ? ['Sin límites semanales.'] : [...weeklyRules, 'Se cuentan las 14 comidas de la semana: comida y cena de lunes a domingo.'],
+    },
+    {
+      title: 'Ingredientes',
+      rules: [
+        ...(ingredients.restrictFish ? [allowedFish.length === 0 ? 'Sin pescado.' : `Pescado: solo ${allowedFish.join('; ')}. Ningún otro, tampoco como ingrediente secundario.`] : []),
+        ...(ingredients.restrictMeat ? [allowedMeat.length === 0 ? 'Sin carne ni embutidos.' : `Carne: solo ${allowedMeat.join('; ')}. Ninguna otra, tampoco como ingrediente secundario.`] : []),
+        ...(ingredients.custom.length > 0 ? [`Sin: ${ingredients.custom.join(', ')}.`] : []),
+        ...(!ingredients.restrictFish && !ingredients.restrictMeat && ingredients.custom.length === 0 ? ['Sin restricciones de ingredientes.'] : []),
+      ],
+    },
+    {
+      title: 'Lunes a viernes',
+      rules: [
+        ...weekdayTime,
+        'La comida de los adultos se parece a la que come Aina ese día en el cole (mismo tipo de plato).',
+        'La cena se inspira en la "proposta de sopar" del menú de Aina, como sugerencia.',
+        'La cena no repite el tipo de proteína ni los ingredientes de lo que Aina e Iria han comido ese día en el cole.',
+        ...(weekdayTime.length > 0 ? [`El fin de semana no tiene límite de tiempo${weekday.onlyEasy ? ' ni de dificultad' : ''}.`] : ['Sin límite de tiempo ni de dificultad.']),
+      ],
+    },
+  ]
+  if (rules.notes.trim()) groups.push({ title: 'Notas de la familia', rules: [rules.notes.trim()] })
+  return groups
+}
 
 // Los sitios en los que se buscan recetas con Tavily, para listarlos en RulesPanel. Salen del mismo
 // módulo que usa el backend para filtrar (server/clients/recipe-sources.ts), así que no pueden

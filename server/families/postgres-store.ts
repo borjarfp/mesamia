@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import type { Family } from '../types'
 import { ensureSchema, getPool, inTransaction } from '../history/postgres-store'
+import { EMPTY_FAMILY_RULES } from '../rules/family-rules'
+import { parseStoredRules } from '../rules/family-rules-schema'
 import type { FamilyStore } from './store'
 
 // FamilyStore sobre Postgres (tablas families y family_members de server/db/schema.sql). El esquema
@@ -31,6 +33,8 @@ async function insertFamily(client: PoolClient, name: string, creatorEmail: stri
   const id = randomUUID()
   await client.query('INSERT INTO families (id, name) VALUES ($1, $2)', [id, name])
   await client.query('INSERT INTO family_members (family_id, email) VALUES ($1, $2)', [id, creatorEmail])
+  // Una familia nueva empieza SIN reglas (se guardan vacías: sin fila se aplicarían las de siempre).
+  await client.query('INSERT INTO family_rules (family_id, rules) VALUES ($1, $2::jsonb)', [id, JSON.stringify(EMPTY_FAMILY_RULES)])
   return id
 }
 
@@ -76,6 +80,16 @@ export function createPostgresFamilyStore(): FamilyStore {
         for (const email of wanted) await client.query('INSERT INTO family_members (family_id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, email])
         return (await loadFamilies((await client.query<FamilyRecord>('SELECT id, name, created_at FROM families WHERE id = $1', [id])).rows, client))[0]
       })
+    },
+    async getRules(familyId) {
+      if (!UUID.test(familyId)) return parseStoredRules(undefined)
+      await ensureSchema()
+      const { rows } = await getPool().query<{ rules: unknown }>('SELECT rules FROM family_rules WHERE family_id = $1', [familyId])
+      return parseStoredRules(rows[0]?.rules)
+    },
+    async setRules(familyId, rules) {
+      await ensureSchema()
+      await getPool().query('INSERT INTO family_rules (family_id, rules) VALUES ($1, $2::jsonb) ON CONFLICT (family_id) DO UPDATE SET rules = EXCLUDED.rules, updated_at = now()', [familyId, JSON.stringify(rules)])
     },
     async remove(id) {
       if (!UUID.test(id)) return false

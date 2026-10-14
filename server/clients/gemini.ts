@@ -1,3 +1,4 @@
+import type { FamilyRules } from '../rules/family-rules'
 import { ApiError, GoogleGenAI, type Content, type Part } from '@google/genai'
 import { z } from 'zod'
 import { getGeminiApiKey } from '../env'
@@ -38,6 +39,9 @@ export type GenerateStructuredInput<Schema extends z.ZodType> = {
   contents: Content[]
   systemInstruction?: string
   temperature?: number
+  // Solo para el modo pruebas: las reglas de la familia, para que el Gemini falso arme semanas que las
+  // cumplan. La llamada real a Gemini las ignora (ya van dentro del prompt).
+  testRules?: FamilyRules
 }
 
 const RETRYABLE_ATTEMPTS = 3
@@ -77,12 +81,13 @@ export async function generateStructured<Schema extends z.ZodType>({
   contents,
   systemInstruction,
   temperature = 0.4,
+  testRules,
 }: GenerateStructuredInput<Schema>): Promise<z.infer<Schema>> {
   // Modo pruebas: datos de prueba en vez de llamar a Gemini (server/testing/fake-gemini.ts). Se
   // validan con el mismo esquema, así que un dato de prueba mal formado falla igual que uno real.
   if (isTestMode()) {
     const prompt = contents.flatMap(content => content.parts ?? []).map(part => part.text ?? '').join('\n')
-    return schema.parse(await fakeGenerateStructured(schema, systemInstruction, prompt))
+    return schema.parse(await fakeGenerateStructured(schema, systemInstruction, prompt, testRules))
   }
   const ai = getClient()
 

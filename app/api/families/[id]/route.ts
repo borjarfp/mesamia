@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { FAMILY_COOKIE, requireSession } from '@/server/auth/family'
+import { FAMILY_COOKIE, requireMemberFamily } from '@/server/auth/family'
 import { NotFoundError, ValidationError } from '@/server/errors'
 import { getFamilyStore } from '@/server/families/store'
 import { FamilyNameSchema, MAX_MEMBERS, MemberEmailSchema } from '@/server/families/schemas'
@@ -14,12 +14,7 @@ type RouteContext = { params: Promise<{ id: string }> }
 
 // Solo se puede tocar una familia de la que se es miembro; si no, 404 (no se revela que existe).
 async function ownFamily(request: Request, { params }: RouteContext) {
-  const session = await requireSession(request)
-  const { id } = await params
-  const families = await getFamilyStore().listForUser(session.email)
-  const family = families.find(item => item.id === id)
-  if (!family) throw new NotFoundError('No existe esa familia.')
-  return { session, family, families }
+  return requireMemberFamily(request, (await params).id)
 }
 
 const UpdateBodySchema = z.object({ name: FamilyNameSchema, members: z.array(MemberEmailSchema).min(1, 'La familia necesita al menos una persona.').max(MAX_MEMBERS, `Una familia admite como máximo ${MAX_MEMBERS} personas.`) })

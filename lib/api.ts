@@ -1,3 +1,4 @@
+import type { FamilyRules } from '@/server/rules/family-rules'
 import type { DayName, Family, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, ShoppingList, WeekPlan } from '@/server/types'
 import { testModeHeaders } from '@/lib/test-mode'
 
@@ -130,5 +131,25 @@ export async function deleteFamily(id: string): Promise<void> {
 // POST /api/families/select — elige la familia activa.
 export async function selectFamily(familyId: string): Promise<{ family: Family }> {
   const response = await apiFetch('/api/families/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ familyId }) })
+  return parseOrThrow(response)
+}
+
+// --- Reglas del menú de la familia -------------------------------------------------------------
+
+// GET /api/rules — las reglas de la familia ACTIVA (para el RulesPanel).
+export async function getActiveRules(): Promise<{ familyId: string; familyName: string; rules: FamilyRules }> {
+  const response = await apiFetch('/api/rules', { cache: 'no-store' })
+  return parseOrThrow(response)
+}
+
+// GET /api/families/[id]/rules — las reglas de una familia (para editarlas en el perfil).
+export async function getFamilyRules(id: string): Promise<{ rules: FamilyRules }> {
+  const response = await apiFetch(`/api/families/${encodeURIComponent(id)}/rules`, { cache: 'no-store' })
+  return parseOrThrow(response)
+}
+
+// PUT /api/families/[id]/rules — guarda las reglas completas de la familia.
+export async function saveFamilyRules(id: string, rules: FamilyRules): Promise<{ rules: FamilyRules }> {
+  const response = await apiFetch(`/api/families/${encodeURIComponent(id)}/rules`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rules) })
   return parseOrThrow(response)
 }

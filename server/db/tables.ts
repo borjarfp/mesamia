@@ -20,6 +20,16 @@ export const FamilyMemberRowSchema = z.object({
 })
 export type FamilyMemberRow = z.infer<typeof FamilyMemberRowSchema>
 
+// Reglas del menú de cada familia (FamilyRules, server/rules/family-rules.ts) como un documento JSON.
+// Una familia sin fila usa DEFAULT_FAMILY_RULES. `rules` se valida al leerlo (parseStoredRules), no aquí:
+// un documento mal formado no debe impedir cargar el resto de la base de datos local.
+export const FamilyRulesRowSchema = z.object({
+  family_id: z.string().uuid(),
+  rules: z.unknown(),
+  updated_at: z.string(),
+})
+export type FamilyRulesRow = z.infer<typeof FamilyRulesRowSchema>
+
 export const SavedWeekRowSchema = z.object({
   id: z.string().uuid(),
   // Familia dueña de la semana. NULL solo en semanas guardadas antes de existir las familias: las
@@ -81,6 +91,7 @@ export const LocalDatabaseSchema = z.object({
   // .default([]): ficheros escritos antes de existir las familias no las traen.
   families: z.array(FamilyRowSchema).default([]),
   family_members: z.array(FamilyMemberRowSchema).default([]),
+  family_rules: z.array(FamilyRulesRowSchema).default([]),
   saved_weeks: z.array(SavedWeekRowSchema),
   recipes: z.array(RecipeRowSchema),
   recipe_ingredients: z.array(RecipeIngredientRowSchema),
@@ -90,7 +101,7 @@ export const LocalDatabaseSchema = z.object({
 })
 export type LocalDatabase = z.infer<typeof LocalDatabaseSchema>
 
-export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, families: [], family_members: [], saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
+export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, families: [], family_members: [], family_rules: [], saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
 
 // Clave única de una receta (columna recipes.fingerprint): hash de TODO su contenido, así un plato
 // idéntico reutiliza la fila y cualquier diferencia (otra descripción, otro ingrediente) es otra

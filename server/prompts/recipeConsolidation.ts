@@ -2,14 +2,15 @@ import type { RecipeSearchHit } from '../clients/tavily'
 import type { PlannedDish } from '../types'
 import { WEEKDAYS } from '../types'
 import { PEOPLE_BY_DAY, peopleLabel } from '../rules/constants'
-import { FAMILY_RESTRICTION_LINES } from './weekPlanning'
+import type { FamilyRules } from '../rules/family-rules'
+import { buildRestrictionLines } from './familyRules'
 
 // Paso 4: para UN plato planificado, elegir la mejor receta entre las candidatas web que encontró
 // Tavily (páginas reales con todo su ruido: menús, anuncios, comentarios...) y una receta propia de
 // Gemini, y devolver la elegida estandarizada (título, descripción, ingredientes, tiempo,
 // dificultad). Antes aquí solo se "limpiaba" la primera página que devolviera Tavily, fuera o no el
 // plato pedido — por eso casi todo acababa siendo receta web.
-export function buildRecipeSelectionSystemInstruction(): string {
+export function buildRecipeSelectionSystemInstruction(rules: FamilyRules): string {
   return [
     'Eres quien elige la receta definitiva de cada plato de un menú semanal familiar.',
     'Recibes el plato planificado y entre 0 y 4 recetas web candidatas (contenido bruto de la página). Las opciones son: una de esas candidatas, o "ia" = escribir tú tu propia receta de ese plato.',
@@ -17,7 +18,7 @@ export function buildRecipeSelectionSystemInstruction(): string {
     'Una candidata web solo es válida si:',
     '- Es de verdad el plato planificado, o uno equivalente con la misma proteína principal y el mismo estilo. Una receta distinta que solo comparte alguna palabra NO es válida.',
     '- Cumple todas estas restricciones de la familia (revisa la lista completa de ingredientes de la página):',
-    ...FAMILY_RESTRICTION_LINES.map(line => `  ${line}`),
+    ...buildRestrictionLines(rules).map(line => `  ${line}`),
     'Entre las opciones válidas (incluida la tuya), elige la mejor para esta familia: la más fiel al plato planificado; con ingredientes claros y habituales en una casa; y, de lunes a viernes, la más sencilla y rápida. No elijas una receta web solo por ser web, ni la tuya solo por ser tuya: quédate con la que sea mejor.',
     'Si no hay candidatas, o ninguna es válida, elige "ia".',
     'Después de elegir, rellena la receta:',

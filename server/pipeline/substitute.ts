@@ -2,6 +2,7 @@ import { generateStructured, textPart } from '../clients/gemini'
 import { GEMINI_MODEL_PRO } from '../env'
 import { buildSubstitutionSystemInstruction, buildSubstitutionUserPrompt } from '../prompts/substitution'
 import { validateWeekDraft } from '../rules/engine'
+import type { FamilyRules } from '../rules/family-rules'
 import {
   AlternativesDraftSchema,
   PLANNED_SLOTS,
@@ -21,6 +22,8 @@ const MAX_SUBSTITUTION_ATTEMPTS = 2
 const DEFAULT_ALTERNATIVES_COUNT = 3
 
 export type SubstituteInput = {
+  // Las reglas de la familia (límites semanales, ingredientes, tiempos).
+  rules: FamilyRules
   day: DayName
   meal: MealSlot
   currentWeek: WeekPlan
@@ -92,15 +95,16 @@ export async function substituteDish(input: SubstituteInput): Promise<Substitute
     const draft = await generateStructured({
       model: GEMINI_MODEL_PRO,
       schema: AlternativesDraftSchema,
-      systemInstruction: buildSubstitutionSystemInstruction(count),
+      systemInstruction: buildSubstitutionSystemInstruction(count, input.rules),
       contents: [{ role: 'user', parts: [textPart(buildSubstitutionUserPrompt(day, meal, currentWeek, violations, input.tasteContext, input.schoolMenu))] }],
       // Más variedad entre las alternativas que en la planificación completa de la semana.
       temperature: 0.6,
+      testRules: input.rules,
     })
 
     alternatives = draft.alternatives.slice(0, count).map(alt => ({ day, meal, ...alt }))
     violations = alternatives
-      .flatMap(alternative => validateWeekDraft([...otherSlots, alternative], schoolMenu))
+      .flatMap(alternative => validateWeekDraft([...otherSlots, alternative], schoolMenu, input.rules))
       .filter(violation => isRelevantViolation(violation, day, meal))
     if (violations.length === 0) break
   }
@@ -110,7 +114,7 @@ export async function substituteDish(input: SubstituteInput): Promise<Substitute
   // acabarían leyendo la receta de una sola de ellas (bug real, encontrado probando con la API
   // real: las 3 alternativas devueltas salían con el mismo título y la misma URL).
   const lookups = await fetchRecipes(alternatives.map((dish, index) => ({ key: `alt:${index}`, dish })))
-  const selected = await selectRecipes(lookups)
+  const selected = await selectRecipes(lookups, input.rules)
   const finalAlternatives = alternatives.map((alternative, index) => dishFromPlannedSlot(alternative, `alt:${index}`, selected))
 
   return { alternatives: finalAlternatives, violations }

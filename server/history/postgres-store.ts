@@ -98,7 +98,7 @@ export async function inTransaction<T>(task: (client: PoolClient) => Promise<T>)
 
 // Lo que se añadió después de crear las tablas (pnpm db:migrate solo vale para una BD vacía) se
 // asegura aquí, una vez por proceso, y es idempotente (todo IF NOT EXISTS): la columna shopping_list y
-// las familias (tablas families/family_members + saved_weeks.family_id). Lo mismo que schema.sql para
+// las familias (tablas families/family_members/family_rules + saved_weeks.family_id). Lo mismo que schema.sql para
 // una BD nueva. El lock evita que dos instancias arranquen a la vez creando las mismas tablas.
 let schemaReady: Promise<unknown> | undefined
 export const ensureSchema = () => schemaReady ??= inTransaction(async client => {
@@ -107,10 +107,12 @@ export const ensureSchema = () => schemaReady ??= inTransaction(async client => 
   await client.query('CREATE TABLE IF NOT EXISTS families (id uuid PRIMARY KEY, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())')
   await client.query('CREATE TABLE IF NOT EXISTS family_members (family_id uuid NOT NULL REFERENCES families (id) ON DELETE CASCADE, email text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (family_id, email))')
   await client.query('CREATE INDEX IF NOT EXISTS family_members_email_idx ON family_members (email)')
+  await client.query('CREATE TABLE IF NOT EXISTS family_rules (family_id uuid PRIMARY KEY REFERENCES families (id) ON DELETE CASCADE, rules jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())')
   await client.query('ALTER TABLE saved_weeks ADD COLUMN IF NOT EXISTS family_id uuid REFERENCES families (id) ON DELETE CASCADE')
   await client.query('CREATE INDEX IF NOT EXISTS saved_weeks_family_id_idx ON saved_weeks (family_id, created_at DESC)')
   await client.query('ALTER TABLE families ENABLE ROW LEVEL SECURITY')
   await client.query('ALTER TABLE family_members ENABLE ROW LEVEL SECURITY')
+  await client.query('ALTER TABLE family_rules ENABLE ROW LEVEL SECURITY')
 }).catch(error => { schemaReady = undefined; throw error })
 
 export function createPostgresHistoryStore(): HistoryStore {

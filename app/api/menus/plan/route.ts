@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireFamily } from '@/server/auth/family'
 import { withTestMode } from '@/server/test-mode'
+import { getFamilyStore } from '@/server/families/store'
 import { getTasteContext } from '@/server/history/taste-context'
 import { parseSchoolMenuUploads, parseWeekStartField, toErrorResponse } from '@/server/http'
 import { planFullWeek } from '@/server/pipeline/orchestrator'
@@ -28,7 +29,8 @@ export async function POST(request: Request) {
 
       const { family } = await requireFamily(request)
       const taste = await getTasteContext(family.id, weekStart)
-      const { schoolMenu, week, violations } = await planFullWeek(uploads, taste.text, weekStart)
+      const rules = await getFamilyStore().getRules(family.id)
+      const { schoolMenu, week, violations } = await planFullWeek(uploads, rules, taste.text, weekStart)
       return NextResponse.json({ schoolMenu, week, violations })
     } catch (error) {
       return toErrorResponse(error)

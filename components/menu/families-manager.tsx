@@ -5,6 +5,7 @@ import { Check, LoaderCircle, Plus, Trash2, X } from 'lucide-react'
 import type { Family } from '@/server/types'
 import { ApiError, createFamily, deleteFamily, selectFamily, updateFamily } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { FamilyRulesEditor } from '@/components/menu/family-rules-editor'
 import { Input } from '@/components/ui/input'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -22,6 +23,7 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(active) // la familia activa es el panel principal: sus reglas empiezan desplegadas
   const dirty = name.trim() !== family.name || members.join('|') !== family.members.join('|')
 
   function addMember(event: FormEvent) {
@@ -39,7 +41,11 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
   const remove = () => run('delete', async () => { await deleteFamily(family.id); onDeleted(family.id) })
   const use = () => run('select', async () => { await selectFamily(family.id); window.location.assign('/planificador') })
 
-  return <section className={`rounded-2xl border p-4 sm:p-5 ${active ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 bg-white'}`}>
+  // La familia activa (verde) es el panel principal: ocupa todo el espacio restante, con sus datos arriba y las
+  // reglas del menú desplegadas DEBAJO, a todo el ancho. Las demás son tarjetas compactas.
+  const panel = active
+  return <section className={`rounded-2xl border p-4 sm:p-5 ${panel ? 'flex flex-1 flex-col' : rulesOpen ? 'xl:col-span-2' : ''} ${active ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 bg-white'}`}>
+    <div>
     <div className="mb-4 flex flex-wrap items-center gap-2">
       {active ? <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-medium text-white">Familia activa</span>
         : <Button variant="outline" size="sm" onClick={use} disabled={busy !== null}>{busy === 'select' && <LoaderCircle className="animate-spin" />}Usar esta familia</Button>}
@@ -51,6 +57,11 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
       <form onSubmit={addMember} className="flex gap-2"><Input type="email" value={newEmail} placeholder="correo@gmail.com" onChange={event => setNewEmail(event.target.value)} /><Button type="submit" variant="outline"><Plus />Añadir</Button></form>
       <p className="text-xs text-slate-500">Deben entrar con la cuenta de Google de ese correo.</p>
     </div>
+    </div>
+    <div className={panel ? 'flex flex-1 flex-col' : undefined}>
+      <FamilyRulesEditor familyId={family.id} onToggle={setRulesOpen} defaultOpen={active} className={panel ? 'flex-1' : undefined} />
+    </div>
+    <div>
     {error && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
     <div className="mt-4 flex flex-wrap items-center gap-2">
       <Button onClick={save} disabled={!dirty || !name.trim() || busy !== null} className="bg-emerald-600 text-white hover:bg-emerald-700">{busy === 'save' && <LoaderCircle className="animate-spin" />}Guardar cambios</Button>
@@ -60,6 +71,7 @@ function FamilyCard({ family, active, canDelete, myEmail, onSaved, onDeleted }: 
     </div>
     {confirming && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>¿Borrar «{family.name}»? Se borra para todas sus personas y se pierden sus semanas guardadas. No se puede deshacer.</p><div className="mt-2 flex gap-2"><Button variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={busy !== null}>Cancelar</Button><Button size="sm" onClick={remove} disabled={busy !== null} className="bg-red-600 text-white hover:bg-red-700">{busy === 'delete' && <LoaderCircle className="animate-spin" />}Sí, borrar</Button></div></div>}
     {!canDelete && <p className="mt-2 text-xs text-slate-500">Es tu única familia, no se puede borrar.</p>}
+    </div>
   </section>
 }
 
@@ -84,8 +96,15 @@ export function FamiliesManager({ initialFamilies, activeId: initialActiveId, my
     if (id === activeId) { setActiveId(null); window.location.assign('/familias/seleccionar') }
   }
 
-  return <div className="space-y-4">
-    {families.map(family => <FamilyCard key={family.id} family={family} active={family.id === activeId || (activeId === null && families.length === 1)} canDelete={families.length > 1} myEmail={myEmail} onSaved={updated => setFamilies(current => current.map(item => item.id === updated.id ? updated : item))} onDeleted={removed} />)}
+  // La familia activa (verde) primero y ocupando todo el espacio restante; el resto, debajo (en escritorio
+  // ancho, de dos en dos), y al final el formulario de nueva familia.
+  const isActive = (family: Family) => family.id === activeId || (activeId === null && families.length === 1)
+  const activeFamily = families.find(isActive)
+  const others = families.filter(family => family !== activeFamily)
+  const card = (family: Family) => <FamilyCard key={family.id} family={family} active={family === activeFamily} canDelete={families.length > 1} myEmail={myEmail} onSaved={updated => setFamilies(current => current.map(item => item.id === updated.id ? updated : item))} onDeleted={removed} />
+  return <div className="flex flex-1 flex-col gap-4">
+    {activeFamily && card(activeFamily)}
+    {others.length > 0 && <div className="grid items-start gap-4 xl:grid-cols-2">{others.map(card)}</div>}
     <form onSubmit={create} className="rounded-2xl border border-dashed border-slate-300 p-4 sm:p-5">
       <label className="block space-y-1.5"><span className="text-sm font-medium text-slate-700">Nueva familia</span><span className="flex gap-2"><Input value={newName} maxLength={60} placeholder="Nombre de la familia" onChange={event => setNewName(event.target.value)} /><Button type="submit" disabled={!newName.trim() || creating} className="bg-emerald-600 text-white hover:bg-emerald-700">{creating ? <LoaderCircle className="animate-spin" /> : <Plus />}Crear</Button></span></label>
       {error && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
