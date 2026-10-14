@@ -5,7 +5,9 @@ const ERRORS: Record<string, string> = {
   cancelled: 'Has cancelado el inicio de sesión.',
   state: 'La sesión de inicio ha caducado. Inténtalo de nuevo.',
   google: 'Google no ha podido verificar tu cuenta. Inténtalo de nuevo.',
-  forbidden: 'Esta cuenta de Google no tiene acceso a MesaMía.',
+  forbidden: 'Esta cuenta de Google no tiene acceso a MesaMía. Pide acceso al administrador.',
+  revoked: 'Ya no tienes acceso a MesaMía. Si crees que es un error, habla con el administrador.',
+  access_check: 'No se ha podido comprobar tu acceso ahora mismo. Inténtalo de nuevo en un momento.',
   config: 'El inicio de sesión no está configurado en el servidor.',
 }
 

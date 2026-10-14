@@ -145,6 +145,10 @@ El esquema completo, con tipos y restricciones, está en `server/db/schema.sql`.
 ```mermaid
 erDiagram
   families ||--o{ family_members : "quién accede (correo)"
+  allowed_emails {
+    text email PK "quién puede entrar (minúsculas)"
+    text added_by
+  }
   families ||--o| family_rules : "reglas del menú (JSON)"
   families ||--o{ saved_weeks : "semanas de la familia"
   saved_weeks ||--o{ week_meals : "14 huecos"

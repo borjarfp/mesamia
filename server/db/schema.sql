@@ -39,6 +39,14 @@ CREATE TABLE family_members (
 );
 CREATE INDEX family_members_email_idx ON family_members (email);
 
+-- Quién puede entrar a la app: solo los correos de esta lista (y el administrador, que siempre puede) pasan el
+-- login con Google. La edita el administrador en /admin. Sin tabla de usuarios: la identidad es el correo.
+CREATE TABLE allowed_emails (
+  email       text        PRIMARY KEY,           -- siempre en minúsculas
+  added_by    text        NOT NULL,              -- correo del administrador (o 'migración' si venía de una familia)
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- Reglas del menú de cada familia: límites semanales de proteína, tiempos de lunes a viernes,
 -- ingredientes prohibidos y notas para la IA, en un documento JSON (FamilyRules, validado en la app con
 -- server/rules/family-rules-schema.ts). Una familia sin fila usa los valores por defecto.
@@ -127,6 +135,7 @@ CREATE INDEX week_meals_recipe_id_idx ON week_meals (recipe_id);
 ALTER TABLE families           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE family_members     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE family_rules       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE allowed_emails     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE saved_weeks        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipe_ingredients ENABLE ROW LEVEL SECURITY;

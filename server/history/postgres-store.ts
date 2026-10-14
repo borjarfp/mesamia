@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
+import { getAdminEmail } from '../env'
 import { DAY_NAMES, type FinalDayPlan, type FinalDish, type HistoryEntry, type MealChange, type MealSlot, type ShoppingList, type WeekPlan } from '../types'
 import { recipeFingerprint } from '../db/tables'
 import type { HistoryStore } from './store'
@@ -98,7 +99,7 @@ export async function inTransaction<T>(task: (client: PoolClient) => Promise<T>)
 
 // Lo que se añadió después de crear las tablas (pnpm db:migrate solo vale para una BD vacía) se
 // asegura aquí, una vez por proceso, y es idempotente (todo IF NOT EXISTS): la columna shopping_list y
-// las familias (tablas families/family_members/family_rules + saved_weeks.family_id). Lo mismo que schema.sql para
+// las familias (tablas families/family_members/family_rules + saved_weeks.family_id) y la lista de acceso (allowed_emails). Lo mismo que schema.sql para
 // una BD nueva. El lock evita que dos instancias arranquen a la vez creando las mismas tablas.
 let schemaReady: Promise<unknown> | undefined
 export const ensureSchema = () => schemaReady ??= inTransaction(async client => {
@@ -113,6 +114,14 @@ export const ensureSchema = () => schemaReady ??= inTransaction(async client => 
   await client.query('ALTER TABLE families ENABLE ROW LEVEL SECURITY')
   await client.query('ALTER TABLE family_members ENABLE ROW LEVEL SECURITY')
   await client.query('ALTER TABLE family_rules ENABLE ROW LEVEL SECURITY')
+  // Lista de acceso. Solo la PRIMERA vez que se crea se siembra con los correos que ya estaban en alguna familia
+  // (quien ya usaba la app no se queda fuera de golpe); después la gestiona el administrador y no se vuelve a
+  // sembrar, o se reañadirían los que quite.
+  const accessExisted = (await client.query("SELECT to_regclass('allowed_emails') AS t")).rows[0].t !== null
+  await client.query("CREATE TABLE IF NOT EXISTS allowed_emails (email text PRIMARY KEY, added_by text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())")
+  // (El administrador no se siembra: ya tiene acceso siempre y saldría duplicado en la lista.)
+  if (!accessExisted) await client.query("INSERT INTO allowed_emails (email, added_by) SELECT DISTINCT lower(email), 'migración' FROM family_members WHERE lower(email) <> $1 ON CONFLICT DO NOTHING", [getAdminEmail()])
+  await client.query('ALTER TABLE allowed_emails ENABLE ROW LEVEL SECURITY')
 }).catch(error => { schemaReady = undefined; throw error })
 
 export function createPostgresHistoryStore(): HistoryStore {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { ConfigError, FamilyRequiredError, NotFoundError, UnauthorizedError, UpstreamApiError, ValidationError } from './errors'
+import { ConfigError, FamilyRequiredError, ForbiddenError, NotFoundError, UnauthorizedError, UpstreamApiError, ValidationError } from './errors'
 import type { SchoolMenuUpload } from './pipeline/step1-extract-school-menu'
 
 // Forma de error consistente en toda la API: { error: { code, message } }. Los códigos son estables
@@ -13,6 +13,7 @@ export function errorResponse(status: number, code: string, message: string, det
 // toErrorResponse(error) }` sin duplicar esta lógica en cada endpoint.
 export function toErrorResponse(error: unknown) {
   if (error instanceof ValidationError) return errorResponse(400, 'validation_error', error.message, error.issues)
+  if (error instanceof ForbiddenError) return errorResponse(403, error.code, error.message)
   if (error instanceof UnauthorizedError) return errorResponse(401, 'unauthorized', error.message)
   if (error instanceof FamilyRequiredError) return errorResponse(409, 'family_required', error.message)
   if (error instanceof NotFoundError) return errorResponse(404, 'not_found', error.message)

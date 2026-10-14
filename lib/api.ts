@@ -1,3 +1,4 @@
+import type { AllowedEmail } from '@/server/access/store'
 import type { FamilyRules } from '@/server/rules/family-rules'
 import type { DayName, Family, FinalDish, HistoryEntry, MealChange, MealSlot, RuleViolation, SchoolMenuExtraction, ShoppingList, WeekPlan } from '@/server/types'
 import { testModeHeaders } from '@/lib/test-mode'
@@ -24,6 +25,8 @@ function apiFetch(url: string, init: RequestInit & { headers?: Record<string, st
 async function parseOrThrow<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null)
   if (response.status === 401 && typeof window !== 'undefined') window.location.assign('/login')
+  // Ya no tiene acceso (el administrador lo quitó de la lista): se borran las cookies y se va al login con el aviso.
+  if (response.status === 403 && body?.error?.code === 'access_revoked' && typeof window !== 'undefined') window.location.assign('/api/auth/revoked')
   // Hay sesión pero ninguna familia activa (varias y sin elegir, o la elegida ya no es suya).
   if (response.status === 409 && body?.error?.code === 'family_required' && typeof window !== 'undefined') window.location.assign('/familias/seleccionar')
   if (!response.ok) {
@@ -105,7 +108,7 @@ export async function getShoppingList(id: string, regenerate = false): Promise<{
 // --- Familias (/api/families) ------------------------------------------------------------------
 
 // GET /api/families — las familias de la persona y el id de la activa (null si hay que elegir).
-export async function listFamilies(): Promise<{ families: Family[]; activeId: string | null }> {
+export async function listFamilies(): Promise<{ families: Family[]; activeId: string | null; isAdmin: boolean }> {
   const response = await apiFetch('/api/families', { cache: 'no-store' })
   return parseOrThrow(response)
 }
@@ -152,4 +155,21 @@ export async function getFamilyRules(id: string): Promise<{ rules: FamilyRules }
 export async function saveFamilyRules(id: string, rules: FamilyRules): Promise<{ rules: FamilyRules }> {
   const response = await apiFetch(`/api/families/${encodeURIComponent(id)}/rules`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rules) })
   return parseOrThrow(response)
+}
+
+// --- Administración: lista de acceso (/api/admin/access, solo el administrador) ----------------
+
+export async function getAccessList(): Promise<{ admin: string; emails: AllowedEmail[] }> {
+  const response = await apiFetch('/api/admin/access', { cache: 'no-store' })
+  return parseOrThrow(response)
+}
+
+export async function addAccessEmail(email: string): Promise<{ added: boolean }> {
+  const response = await apiFetch('/api/admin/access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
+  return parseOrThrow(response)
+}
+
+export async function removeAccessEmail(email: string): Promise<void> {
+  const response = await apiFetch(`/api/admin/access?email=${encodeURIComponent(email)}`, { method: 'DELETE' })
+  await parseOrThrow(response)
 }

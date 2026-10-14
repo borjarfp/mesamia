@@ -135,6 +135,18 @@ curl -X POST http://localhost:3000/api/menus/substitute \
 
 Respuesta: `{ alternatives: FinalDish[], violations: RuleViolation[] }`.
 
+### Administración y acceso
+
+Solo entran a la app los correos de la lista `allowed_emails` (más el administrador, `ADMIN_EMAIL`, por defecto
+`borja.rfp@gmail.com`). Se comprueba al iniciar sesión y en cada petición (quitar a alguien le cierra la sesión).
+Todas las rutas siguientes son **solo del administrador** (`403 forbidden` para el resto; `403 access_revoked`
+para quien ya no tiene acceso a la app):
+
+- `GET /api/admin/access` → `{ admin, emails: [{ email, addedBy, createdAt }] }`.
+- `POST /api/admin/access` con `{ email }` → 201 `{ added: true }` (200 `{ added: false }` si ya estaba).
+- `DELETE /api/admin/access?email=…` → 204 (404 si no estaba). No se puede añadir ni quitar al administrador.
+- `GET /api/auth/revoked` → borra las cookies de sesión y familia y redirige a `/login?error=revoked`.
+
 ### Familias
 
 Las semanas guardadas son de una **familia**; una persona (correo de Google) puede estar en varias.

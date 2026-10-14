@@ -15,7 +15,8 @@ export async function proxy(request: NextRequest) {
   }
 
   if (session) {
-    if (pathname === '/login') return NextResponse.redirect(new URL('/planificador', request.url))
+    // Con ?error= se muestra el aviso (p. ej. "ya no tienes acceso") aunque quede una cookie vieja.
+    if (pathname === '/login' && !request.nextUrl.searchParams.has('error')) return NextResponse.redirect(new URL('/planificador', request.url))
     return NextResponse.next()
   }
   if (isAuthRoute) return NextResponse.next()

@@ -30,6 +30,15 @@ export const FamilyRulesRowSchema = z.object({
 })
 export type FamilyRulesRow = z.infer<typeof FamilyRulesRowSchema>
 
+// Correos que pueden entrar a la app (los gestiona el administrador en /admin). El administrador no hace falta
+// que esté aquí: siempre tiene acceso (server/auth/access.ts).
+export const AllowedEmailRowSchema = z.object({
+  email: z.string(),
+  added_by: z.string(),
+  created_at: z.string(),
+})
+export type AllowedEmailRow = z.infer<typeof AllowedEmailRowSchema>
+
 export const SavedWeekRowSchema = z.object({
   id: z.string().uuid(),
   // Familia dueña de la semana. NULL solo en semanas guardadas antes de existir las familias: las
@@ -92,6 +101,10 @@ export const LocalDatabaseSchema = z.object({
   families: z.array(FamilyRowSchema).default([]),
   family_members: z.array(FamilyMemberRowSchema).default([]),
   family_rules: z.array(FamilyRulesRowSchema).default([]),
+  // .default: ficheros anteriores no los traen. `access_seeded` marca que la lista ya se sembró una vez con los
+  // correos que ya estaban en alguna familia (para no volver a añadir los que el administrador quite).
+  allowed_emails: z.array(AllowedEmailRowSchema).default([]),
+  access_seeded: z.boolean().default(false),
   saved_weeks: z.array(SavedWeekRowSchema),
   recipes: z.array(RecipeRowSchema),
   recipe_ingredients: z.array(RecipeIngredientRowSchema),
@@ -101,7 +114,7 @@ export const LocalDatabaseSchema = z.object({
 })
 export type LocalDatabase = z.infer<typeof LocalDatabaseSchema>
 
-export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, families: [], family_members: [], family_rules: [], saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
+export const emptyDatabase = (): LocalDatabase => ({ schema_version: 1, families: [], family_members: [], family_rules: [], allowed_emails: [], access_seeded: false, saved_weeks: [], recipes: [], recipe_ingredients: [], recipe_steps: [], week_meals: [] })
 
 // Clave única de una receta (columna recipes.fingerprint): hash de TODO su contenido, así un plato
 // idéntico reutiliza la fila y cualquier diferencia (otra descripción, otro ingrediente) es otra

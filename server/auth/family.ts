@@ -1,8 +1,9 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { FamilyRequiredError, NotFoundError, UnauthorizedError } from '../errors'
+import { FamilyRequiredError, ForbiddenError, NotFoundError, UnauthorizedError } from '../errors'
 import { getFamilyStore } from '../families/store'
 import type { Family } from '../types'
+import { isAdminEmail, isEmailAllowed } from './access'
 import { SESSION_COOKIE, verifySessionToken, type Session } from './session'
 
 // Familia activa: la que ha elegido la persona (cookie FAMILY_COOKIE, con el id) o, si solo tiene
@@ -12,6 +13,7 @@ import { SESSION_COOKIE, verifySessionToken, type Session } from './session'
 export const FAMILY_COOKIE = 'mesamia_family'
 export const DEFAULT_FAMILY_NAME = 'Mi familia'
 export const SELECT_FAMILY_PATH = '/familias/seleccionar'
+export const REVOKED_PATH = '/api/auth/revoked'
 
 function readCookie(header: string | null, name: string): string | undefined {
   for (const part of (header ?? '').split(';')) {
@@ -31,9 +33,19 @@ export async function resolveFamilies(session: Session, selectedId: string | und
 
 // --- Rutas de app/api/** (reciben un Request) ----------------------------------------------------
 
+// Sesión válida Y correo todavía en la lista de acceso: quitar a alguien en /admin le cierra la sesión que tuviera
+// abierta (el cliente, ante 'access_revoked', va a /api/auth/revoked, que borra las cookies).
 export async function requireSession(request: Request): Promise<Session> {
   const session = await verifySessionToken(readCookie(request.headers.get('cookie'), SESSION_COOKIE))
   if (!session) throw new UnauthorizedError()
+  if (!(await isEmailAllowed(session.email))) throw new ForbiddenError('Ya no tienes acceso a MesaMía.', 'access_revoked')
+  return session
+}
+
+// Solo el administrador (ADMIN_EMAIL). 403 'forbidden' para cualquier otra persona con sesión.
+export async function requireAdmin(request: Request): Promise<Session> {
+  const session = await requireSession(request)
+  if (!isAdminEmail(session.email)) throw new ForbiddenError('Esto es solo para el administrador.')
   return session
 }
 
@@ -58,6 +70,8 @@ export async function requireMemberFamily(request: Request, familyId: string): P
 export async function requireSessionForPage(): Promise<Session> {
   const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value)
   if (!session) redirect('/login')
+  // Sin acceso (lo quitaron de la lista): una página no puede borrar cookies, así que va a una ruta que las borra.
+  if (!(await isEmailAllowed(session.email))) redirect(REVOKED_PATH)
   return session
 }
 

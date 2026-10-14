@@ -53,3 +53,15 @@ export class FamilyRequiredError extends Error {
     this.name = 'FamilyRequiredError'
   }
 }
+
+// Hay sesión, pero esa persona no puede hacer esto → 403. `code` distingue "ya no tienes acceso a la app"
+// ('access_revoked': el cliente cierra la sesión y manda al login) de "esto es solo del administrador"
+// ('forbidden').
+export class ForbiddenError extends Error {
+  code: 'access_revoked' | 'forbidden'
+  constructor(message: string, code: 'access_revoked' | 'forbidden' = 'forbidden') {
+    super(message)
+    this.name = 'ForbiddenError'
+    this.code = code
+  }
+}

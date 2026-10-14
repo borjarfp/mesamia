@@ -53,11 +53,10 @@ export function getGoogleClientSecret(): string {
   return requireEnv('GOOGLE_CLIENT_SECRET')
 }
 
-// Lista opcional de correos (separados por comas) que pueden entrar. Los datos son de un único
-// hogar, no por usuario: si se deja vacía, entra CUALQUIER cuenta de Google.
-export function getAllowedEmails(): string[] {
-  return (process.env.AUTH_ALLOWED_EMAILS ?? '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean)
+// Correo del administrador: el único que entra a /admin y gestiona quién puede acceder a la app. Siempre
+// tiene acceso, aunque no esté en la lista. Configurable por ADMIN_EMAIL; por defecto, el del propietario.
+// (Ya no existe AUTH_ALLOWED_EMAILS: la lista de acceso vive en la BD y se edita en /admin.)
+export const DEFAULT_ADMIN_EMAIL = 'borja.rfp@gmail.com'
+export function getAdminEmail(): string {
+  return (process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase()
 }

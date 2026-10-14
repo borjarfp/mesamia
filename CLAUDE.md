@@ -414,8 +414,9 @@ datos **no** son por usuario: el login decide quién entra y las semanas son de 
 - **`next`** pasa por `safeNextPath`: solo rutas internas que empiecen por `/`, nunca `//` ni
   `/api/` (evita open redirect).
 - **Variables** (`server/env.ts`, plantilla en `.env.local.example`): `GOOGLE_CLIENT_ID`,
-  `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` (≥32 caracteres) y `AUTH_ALLOWED_EMAILS` (opcional, correos
-  separados por comas; **vacío = cualquier cuenta de Google**). La URI de redirección que hay que
+  `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` (≥32 caracteres) y `ADMIN_EMAIL` (opcional, por defecto
+  `borja.rfp@gmail.com`; ver "Administración y lista de acceso"). **`AUTH_ALLOWED_EMAILS` ya no existe.**
+  La URI de redirección que hay que
   registrar en Google Cloud es `<origen>/api/auth/google/callback`, y se calcula del origen de la
   petición (hay que registrar la de localhost y la de producción).
 - **Gotcha**: si falta `GOOGLE_CLIENT_ID`, `/api/auth/google` redirige a `/login?error=config` y se
@@ -423,6 +424,49 @@ datos **no** son por usuario: el login decide quién entra y las semanas son de 
   lee `.env.local` al arrancar: reiniciar `pnpm dev` tras cambiarlo.
 - **Probado** con curl y un token firmado (páginas, API, cookie falsa, `/login` con sesión, logout,
   `state` incorrecto). **El login completo contra Google real no se probó en esa sesión.**
+
+### Administración y lista de acceso (`/admin`, `server/access/`, `server/auth/access.ts`)
+
+Pedido: *"una pantalla de administración que solo pueda acceder borja.rfp@gmail.com, en la que dar acceso a los
+emails que quiera. Solo los emails que salen ahí podrán entrar; si hace login con Google uno que no esté, no podrá
+entrar."* Sustituye a la variable `AUTH_ALLOWED_EMAILS` (que con la lista vacía dejaba entrar a cualquiera).
+- **Quién entra**: SOLO los correos de la tabla `allowed_emails` **más el administrador** (`ADMIN_EMAIL`, por defecto
+  `borja.rfp@gmail.com`, siempre puede, aunque no esté en la lista y aunque la BD esté caída: se comprueba antes de
+  tocarla, para que nadie se quede fuera de su propia app). Los correos van siempre en minúsculas.
+- **Dónde se comprueba**: (1) en el callback del login (`/api/auth/google/callback`): sin acceso →
+  `/login?error=forbidden` y se borran las cookies de sesión/familia que hubiera; si no se puede leer la lista, se
+  **deniega** (`error=access_check`); (2) **en cada petición**: `requireSession` (API) y `requireSessionForPage`
+  (páginas) vuelven a comprobar que el correo sigue en la lista, así que **quitar a alguien le cierra la sesión que
+  tuviera abierta**. API → `403 access_revoked` (el cliente, en `parseOrThrow`, navega a `/api/auth/revoked`);
+  páginas → `redirect('/api/auth/revoked')`. Esa ruta `GET` solo borra las cookies de sesión y familia y manda a
+  `/login?error=revoked` (una página de servidor no puede borrar cookies). El proxy ya no redirige `/login` a
+  `/planificador` cuando trae `?error=`, para poder enseñar el aviso con una cookie vieja.
+- **Caché**: `isEmailAllowed` guarda la lista 30 s en memoria (cada consulta a Supabase cuesta ~30 ms y se haría en
+  cada petición). Dar acceso nunca espera (un "no" se vuelve a comprobar antes de denegar, cada 2 s como mucho) y
+  `invalidateAccessCache()` se llama al editar; quitar a alguien tarda hasta 30 s en otras instancias (en
+  desarrollo, páginas y rutas de API tienen cada una su copia de la caché).
+- **`/admin`** (`app/admin/page.tsx` + `AdminAccess`): para cualquiera que no sea el administrador es un **404** (no se
+  revela que existe); sin sesión, al login. Pantalla "Acceso a la app": formulario para dar acceso a un correo
+  (validación sin la nativa del navegador, `noValidate`, para ver el mensaje en español) y lista de quienes pueden
+  entrar, con el administrador arriba (sin botón de quitar) y "Quitar acceso" con confirmación en cada fila. El
+  enlace **"Administración"** del menú Perfil solo sale al administrador (`GET /api/families` devuelve `isAdmin`).
+- **API** (`requireAdmin`; cualquier otra sesión recibe `403 forbidden`): `GET /api/admin/access` → `{ admin,
+  emails }`; `POST` `{ email }` → 201 (200 si ya estaba; no deja añadir al administrador; máx. 500);
+  `DELETE ?email=` → 204 (404 si no estaba; no deja quitar al administrador).
+- **Datos**: tabla `allowed_emails(email PK, added_by, created_at)` (`schema.sql`, `tables.ts`, JSON local con
+  `allowed_emails` + `access_seeded`), creada por `ensureSchema()`. **Sembrado único**: la primera vez que se crea
+  se rellena con los correos que ya estaban en alguna familia (`added_by = 'migración'`, para que quien ya usaba la
+  app no se quede fuera de golpe), **sin el administrador**; después no se vuelve a sembrar, o se reañadirían los
+  que el administrador quite (en el JSON local lo marca `access_seeded`). En la BD real se sembró con
+  `maria.ripoll.marco@gmail.com`.
+- **Probado** (14-oct-2026): con el callback real y un simulacro SOLO del intercambio con Google (en una copia
+  temporal): correo en la lista entra, correo sin acceso → `forbidden` sin sesión (y borra una sesión previa),
+  administrador entra, `state` malo y cancelado siguen funcionando, dar y quitar acceso se nota al instante;
+  sembrado y no resembrado; 403/404 para quien no es administrador; sesión abierta cerrada al quitar el acceso
+  (API, página y recarga en Chrome, con las cookies borradas); la pantalla en Chrome (añadir, inválido, quitar con
+  confirmación, móvil sin desbordes, menú solo para el administrador); y el mismo flujo contra **Postgres real** con
+  un administrador de prueba (`ADMIN_EMAIL` por entorno, para no suplantar al real), con limpieza posterior. **No
+  probado**: el login con una cuenta de Google real (el simulacro sustituye solo el intercambio del código).
 
 ### Familias (`server/families/`, `app/api/families/**`)
 
@@ -472,8 +516,8 @@ Al entrar se elige familia (o, con una sola, se usa esa). Todo lo de semanas es 
 - **Reglas**: solo se edita nombre y miembros; no puedes quitarte a ti mismo (evita quedarte sin acceso);
   **borrar una familia la borra para todos sus miembros** y sus semanas; siempre hay que conservar ≥1
   propia (si a otra persona le dejas sin ninguna, se le crea "Mi familia" vacía al entrar).
-  `AUTH_ALLOWED_EMAILS` sigue mandando en el login: añadir a alguien a una familia no le deja entrar si su
-  correo no está en esa lista (si está vacía, entra cualquier cuenta de Google).
+  Añadir a alguien a una familia **no le da acceso a la app**: tiene que estar en la lista de acceso del
+  administrador (ver "Administración y lista de acceso").
 - **Probado** (store JSON local, BD temporal, API con curl y tokens firmados): auto-creación, adopción de
   semanas antiguas, aislamiento entre familias y personas, 404 a semanas/familias ajenas, 409 con varias
   sin elegir, cookie falsa, validaciones (correo, nombre, quitarse a uno mismo), borrado con limpieza de
@@ -1061,7 +1105,7 @@ real, no ya de prototipo:
 - Gestión de niños (Aina e Iria siguen fijas en el código) y roles/invitaciones en las familias. Ya hay
   login con Google (ver "Autenticación") y familias (ver "Familias"), pero cualquier miembro puede editar
   o borrar la familia, y añadir a alguien es solo escribir su correo (sin invitación ni aceptación).
-  Mientras `AUTH_ALLOWED_EMAILS` esté vacío, entra cualquier cuenta de Google.
+  El acceso a la app lo decide el administrador (ver "Administración y lista de acceso").
 - **UX de subida por niña más pulida.** Hoy cada archivo se asigna a "Aina" por defecto y se
   retoca con dos botones-pastilla dentro del chip (ver "Rutas" arriba) — funciona, pero es la
   mínima UI posible para el contrato del backend (un campo de formulario por niña), no un diseño

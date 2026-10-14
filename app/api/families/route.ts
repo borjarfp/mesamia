@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { isAdminEmail } from '@/server/auth/access'
 import { FAMILY_COOKIE, requireSession, resolveFamilies } from '@/server/auth/family'
 import { ValidationError } from '@/server/errors'
 import { getFamilyStore } from '@/server/families/store'
@@ -11,13 +12,13 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/families
 // Las familias de la persona de la sesión (si no tiene ninguna, se le crea una) y el id de la
-// activa, o null si tiene varias y aún no ha elegido. Respuesta: { families, activeId }.
+// activa, o null si tiene varias y aún no ha elegido; `isAdmin` para mostrar el enlace a /admin. Respuesta: { families, activeId, isAdmin }.
 export async function GET(request: Request) {
   try {
     const session = await requireSession(request)
     const selected = request.headers.get('cookie')?.split(';').map(part => part.trim().split('=')).find(([key]) => key === FAMILY_COOKIE)?.[1]
     const { families, active } = await resolveFamilies(session, selected)
-    return NextResponse.json({ families, activeId: active?.id ?? null })
+    return NextResponse.json({ families, activeId: active?.id ?? null, isAdmin: isAdminEmail(session.email) })
   } catch (error) {
     return toErrorResponse(error)
   }
